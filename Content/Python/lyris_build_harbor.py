@@ -18,7 +18,7 @@ import os
 
 import unreal
 
-BUILD_VERSION = 5
+BUILD_VERSION = 6
 MAP_PATH = "/Game/Lyris/Maps/Harbor"
 MAT_DIR = "/Game/Lyris/Materials/Prototype"
 MARKER_PREFIX = "LyrisBuild_v"
@@ -45,10 +45,10 @@ MOONGLASS = "7AC0E6"  # cold lamp light, Quiet Reach palette
 ISLAND_DIR = "Art/TestIsland"
 ISLAND_GLB = "test_island.glb"
 GRASS_GLB = "test_island_grass.glb"
-GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass"
-TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island"
+GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass_v6"
+TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island_v6"
 ISLAND_META = "island_meta.json"
-ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland"
+ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland_v6"
 
 DOCK_X0, DOCK_X1, DOCK_Y, DOCK_TOP = 1150.0, 2850.0, 150.0, 72.0
 BOAT_START = (2450.0, -230.0)
@@ -134,7 +134,20 @@ def _make_sea_material():
 
 
 # ----------------------------------------------------------------------------- island materials
-# Genshin-style surfaces (see Art/TestIsland/make_island.py for the vertex-colour layout).
+# The island's look is computed in world space inside the materials, so it never depends on
+# extra data surviving the import:
+#   terrain  grass / sand / worn path from the island splat map (Art/TestIsland/textures/splat.png),
+#            rock wherever the ground is steep, textures wrapped from three sides on cliffs
+#            (triplanar) so nothing stretches, and a soft warm-to-cool tone across the island.
+#   rock     triplanar stone with grass only on its flat tops.
+#   leaves   one soft gradient across each canopy (dark underneath, sunlit on top) plus a little
+#            self-light so trees never go muddy in shadow.
+#   grass    darker root to light tip along the blade, tinted by the large-scale ground colour,
+#            swaying in a slow travelling wind; wildflowers are masked cards that sway gently.
+
+SPLAT_EXTENT = 3200.0  # the splat map covers -3200..3200 cm on X and Y (see island_meta.json)
+TILE = 1.0 / 400.0     # ground textures repeat every 4 m
+
 
 class _Graph:
     """Small helper for building material graphs from Python."""
@@ -146,16 +159,17 @@ class _Graph:
         self.mat = unreal.load_asset(self.path) if self.exists else _new_material(self.name)
         self.mel = unreal.MaterialEditingLibrary
         self.y = 0
+        self._wp = self._nrm = None
 
     def node(self, cls, **props):
-        expr = self.mel.create_material_expression(self.mat, cls, -600, self.y)
-        self.y += 140
+        expr = self.mel.create_material_expression(self.mat, cls, -900, self.y)
+        self.y += 120
         for key, value in props.items():
             expr.set_editor_property(key, value)
         return expr
 
-    def tex(self, texture):
-        return self.node(unreal.MaterialExpressionTextureSample, texture=texture)
+    def link(self, src, dst, src_out="", dst_in=""):
+        self.mel.connect_material_expressions(src, src_out, dst, dst_in)
 
     def const(self, value):
         return self.node(unreal.MaterialExpressionConstant, r=value)
@@ -165,17 +179,88 @@ class _Graph:
 
     def op(self, cls, a, b=None, a_out="", b_out="", const_b=None):
         expr = self.node(cls) if const_b is None else self.node(cls, const_b=const_b)
-        self.mel.connect_material_expressions(a, a_out, expr, "A")
+        self.link(a, expr, a_out, "A")
         if b is not None:
-            self.mel.connect_material_expressions(b, b_out, expr, "B")
+            self.link(b, expr, b_out, "B")
         return expr
+
+    def mul(self, a, b=None, a_out="", b_out="", k=None):
+        return self.op(unreal.MaterialExpressionMultiply, a, b, a_out, b_out, k)
+
+    def add(self, a, b=None, a_out="", b_out="", k=None):
+        return self.op(unreal.MaterialExpressionAdd, a, b, a_out, b_out, k)
 
     def lerp(self, a, b, alpha, a_out="", b_out="", alpha_out=""):
         expr = self.node(unreal.MaterialExpressionLinearInterpolate)
-        self.mel.connect_material_expressions(a, a_out, expr, "A")
-        self.mel.connect_material_expressions(b, b_out, expr, "B")
-        self.mel.connect_material_expressions(alpha, alpha_out, expr, "Alpha")
+        self.link(a, expr, a_out, "A")
+        self.link(b, expr, b_out, "B")
+        self.link(alpha, expr, alpha_out, "Alpha")
         return expr
+
+    def single(self, cls, src, src_out="", **props):
+        expr = self.node(cls, **props)
+        self.link(src, expr, src_out, "")
+        return expr
+
+    def mask(self, src, channels):
+        return self.single(unreal.MaterialExpressionComponentMask, src, r="R" in channels, g="G" in channels,
+                           b="B" in channels, a="A" in channels)
+
+    def saturate(self, src):
+        return self.single(unreal.MaterialExpressionSaturate, src)
+
+    def wp(self):
+        if self._wp is None:
+            self._wp = self.node(unreal.MaterialExpressionWorldPosition)
+        return self._wp
+
+    def normal(self):
+        if self._nrm is None:
+            self._nrm = self.node(unreal.MaterialExpressionVertexNormalWS)
+        return self._nrm
+
+    def tex(self, texture, uv=None, linear=False):
+        expr = self.node(unreal.MaterialExpressionTextureSample, texture=texture)
+        if linear:
+            expr.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+        if uv is not None:
+            self.link(uv, expr, "", "UVs")
+        return expr
+
+    def world_uv(self, scale):
+        return self.mul(self.mask(self.wp(), "RG"), k=scale)
+
+    def triplanar(self, texture, scale):
+        """Samples a texture from three sides and blends by the surface direction (no stretching)."""
+        w = self.single(unreal.MaterialExpressionPower, self.single(unreal.MaterialExpressionAbs, self.normal()),
+                        const_exponent=4.0)
+        total = self.add(self.add(self.mask(w, "R"), self.mask(w, "G")), self.mask(w, "B"))
+        wn = self.op(unreal.MaterialExpressionDivide, w, total)
+        sx = self.tex(texture, self.mul(self.mask(self.wp(), "GB"), k=scale))
+        sy = self.tex(texture, self.mul(self.mask(self.wp(), "RB"), k=scale))
+        sz = self.tex(texture, self.mul(self.mask(self.wp(), "RG"), k=scale))
+        return self.add(self.add(self.mul(sx, self.mask(wn, "R"), "RGB"), self.mul(sy, self.mask(wn, "G"), "RGB")),
+                        self.mul(sz, self.mask(wn, "B"), "RGB"))
+
+    def up(self):
+        return self.mask(self.normal(), "B")
+
+    def wind(self, weight, strength=1.0):
+        """A slow travelling wave; `weight` scales it (0 at the root, 1 at the tip)."""
+        wp = self.wp()
+        phase = self.mul(self.add(self.mask(wp, "R"), self.mask(wp, "G")), k=0.0035)
+        arg = self.add(phase, self.mul(self.node(unreal.MaterialExpressionTime), k=0.28))
+        sine = self.single(unreal.MaterialExpressionSine, arg)
+        cosine = self.single(unreal.MaterialExpressionCosine, self.mul(arg, k=1.37))
+        dx = self.mul(self.mul(sine, k=9.0 * strength), weight)
+        dy = self.mul(self.mul(cosine, k=5.0 * strength), weight)
+        xy = self.node(unreal.MaterialExpressionAppendVector)
+        self.link(dx, xy, "", "A")
+        self.link(dy, xy, "", "B")
+        xyz = self.node(unreal.MaterialExpressionAppendVector)
+        self.link(xy, xyz, "", "A")
+        self.link(self.const(0.0), xyz, "", "B")
+        return xyz
 
     def out(self, expr, prop, pin=""):
         self.mel.connect_material_property(expr, pin, prop)
@@ -186,92 +271,100 @@ class _Graph:
         return self.mat
 
 
+def _splat_uv(g):
+    return g.mul(g.add(g.mask(g.wp(), "RG"), k=SPLAT_EXTENT), k=1.0 / (2 * SPLAT_EXTENT))
+
+
 def _material_terrain(tex):
-    """Soft blend of grass / sand / rock by vertex colour, then a large-scale warm-to-cool tone."""
     g = _Graph("IslandTerrain")
     if g.exists:
         return g.mat
-    vc = g.node(unreal.MaterialExpressionVertexColor)
-    grass, sand, rock = g.tex(tex["grass"]), g.tex(tex["sand"]), g.tex(tex["cliff"])
-    mix = g.op(unreal.MaterialExpressionAdd,
-               g.op(unreal.MaterialExpressionAdd,
-                    g.op(unreal.MaterialExpressionMultiply, grass, vc, "RGB", "R"),
-                    g.op(unreal.MaterialExpressionMultiply, sand, vc, "RGB", "G")),
-               g.op(unreal.MaterialExpressionMultiply, rock, vc, "RGB", "B"))
-    weight = g.op(unreal.MaterialExpressionMax,
-                  g.op(unreal.MaterialExpressionAdd, g.op(unreal.MaterialExpressionAdd, vc, vc, "R", "G"), vc, "", "B"),
-                  g.const(0.001))
-    blended = g.op(unreal.MaterialExpressionDivide, mix, weight)
-    tone = g.lerp(g.colour("FFF2DC"), g.colour("E4F0FF"), vc, alpha_out="A")
-    g.out(g.op(unreal.MaterialExpressionMultiply, blended, tone), unreal.MaterialProperty.MP_BASE_COLOR)
-    g.out(g.const(0.92), unreal.MaterialProperty.MP_ROUGHNESS)
+    uv = g.world_uv(TILE)
+    # Two scales of grass mixed together so the repeat never shows.
+    grass = g.lerp(g.tex(tex["grass"], uv), g.tex(tex["grass"], g.world_uv(TILE * 0.27)), g.const(0.4),
+                   "RGB", "RGB")
+    sand = g.tex(tex["sand"], uv)
+    path = g.tex(tex["path"], g.world_uv(TILE * 1.4))
+    splat = g.tex(tex["splat"], _splat_uv(g), linear=True)
+    steep = g.saturate(g.add(g.mul(g.up(), k=-5.5), k=4.4))  # 1 where steeper than ~37 degrees
+    rock_w = g.op(unreal.MaterialExpressionMax, splat, steep, "G")
+    rock = g.triplanar(tex["cliff"], TILE)
+    base = g.lerp(grass, sand, splat, "", "RGB", "R")
+    base = g.lerp(base, path, splat, "", "RGB", "B")
+    base = g.lerp(base, rock, rock_w)
+    tone = g.lerp(g.colour("FFF4E2"), g.colour("EAF2FF"), splat, alpha_out="A")
+    g.out(g.mul(base, tone), unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.const(0.94), unreal.MaterialProperty.MP_ROUGHNESS)
     return g.done()
 
 
 def _material_rock(tex):
-    """Faceted rock with grass on its upward faces (vertex colour R)."""
     g = _Graph("IslandRock")
     if g.exists:
         return g.mat
-    vc = g.node(unreal.MaterialExpressionVertexColor)
-    g.out(g.lerp(g.tex(tex["cliff"]), g.tex(tex["grass"]), vc, "RGB", "RGB", "R"),
+    rock = g.triplanar(tex["cliff"], TILE)
+    grass_top = g.saturate(g.add(g.mul(g.up(), k=5.0), k=-3.7))  # only nearly flat tops
+    g.out(g.lerp(rock, g.tex(tex["grass"], g.world_uv(TILE)), grass_top, "", "RGB"),
           unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.const(0.92), unreal.MaterialProperty.MP_ROUGHNESS)
+    return g.done()
+
+
+def _material_bark(tex, name="IslandBark", tint=None):
+    g = _Graph(name)
+    if g.exists:
+        return g.mat
+    bark = g.triplanar(tex["bark"], 1.0 / 140.0)
+    if tint:
+        bark = g.mul(bark, g.colour(tint))
+    g.out(bark, unreal.MaterialProperty.MP_BASE_COLOR)
     g.out(g.const(0.9), unreal.MaterialProperty.MP_ROUGHNESS)
     return g.done()
 
 
-def _material_textured(name, texture, lift=0.0):
-    """Painted texture as base colour. `lift` adds a little self-light so shadows never go too
-    dark (the minimum-light trick Genshin uses on trees)."""
+def _material_canopy(name, texture, dark_hex, sun_hex):
     g = _Graph(name)
     if g.exists:
         return g.mat
-    sample = g.tex(texture)
-    g.out(sample, unreal.MaterialProperty.MP_BASE_COLOR, "RGB")
-    if lift:
-        g.out(g.op(unreal.MaterialExpressionMultiply, sample, None, "RGB", const_b=lift),
-              unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-    g.out(g.const(0.88), unreal.MaterialProperty.MP_ROUGHNESS)
+    # Normals point out from each canopy's centre, so this paints one soft gradient over the mass.
+    up = g.saturate(g.add(g.mul(g.up(), k=0.5), k=0.5))
+    colour = g.lerp(g.colour(dark_hex), g.colour(sun_hex), up)
+    detail = g.lerp(g.const(1.0), g.tex(texture, g.world_uv(1.0 / 160.0)), g.const(0.35), "", "RGB")
+    base = g.mul(colour, detail)
+    g.out(base, unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.mul(base, k=0.22), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.const(0.85), unreal.MaterialProperty.MP_ROUGHNESS)
     return g.done()
 
 
-def _material_grass():
-    """Two-sided blades: dark at the root, light at the tip, per-clump tint, swaying in the wind."""
+def _material_grass(tex):
     g = _Graph("IslandGrass")
     if g.exists:
         return g.mat
     g.mat.set_editor_property("two_sided", True)
-    vc = g.node(unreal.MaterialExpressionVertexColor)
-    blade = g.lerp(g.colour("5E7A36"), g.colour("C6D872"), vc, alpha_out="R")
-    tint = g.op(unreal.MaterialExpressionAdd, g.op(unreal.MaterialExpressionMultiply, vc, None, "G", const_b=0.3),
-                None, const_b=0.85)
-    colour = g.op(unreal.MaterialExpressionMultiply, blade, tint)
+    v = g.mask(g.node(unreal.MaterialExpressionTextureCoordinate), "G")  # 0 at the root, 1 at the tip
+    blade = g.lerp(g.colour("6C8A46"), g.colour("D9E690"), v)
+    # Pick up the ground's large colour patches so the meadow and the blades agree.
+    ground = g.mul(g.tex(tex["grass"], g.world_uv(TILE * 0.27)), None, "RGB", k=1.25)
+    colour = g.mul(blade, ground)
     g.out(colour, unreal.MaterialProperty.MP_BASE_COLOR)
-    g.out(g.op(unreal.MaterialExpressionMultiply, colour, None, const_b=0.12), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.mul(colour, k=0.1), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     g.out(g.const(0.8), unreal.MaterialProperty.MP_ROUGHNESS)
-    # Wind: a slow travelling wave, strongest at the tips (vertex colour R squared).
-    wp = g.node(unreal.MaterialExpressionWorldPosition)
-    px = g.node(unreal.MaterialExpressionComponentMask, r=True, g=False, b=False, a=False)
-    g.mel.connect_material_expressions(wp, "", px, "")
-    py = g.node(unreal.MaterialExpressionComponentMask, r=False, g=True, b=False, a=False)
-    g.mel.connect_material_expressions(wp, "", py, "")
-    phase = g.op(unreal.MaterialExpressionMultiply, g.op(unreal.MaterialExpressionAdd, px, py), None, const_b=0.0035)
-    time = g.op(unreal.MaterialExpressionMultiply, g.node(unreal.MaterialExpressionTime), None, const_b=0.28)
-    arg = g.op(unreal.MaterialExpressionAdd, phase, time)
-    sine = g.node(unreal.MaterialExpressionSine)
-    g.mel.connect_material_expressions(arg, "", sine, "")
-    cosine = g.node(unreal.MaterialExpressionCosine)
-    g.mel.connect_material_expressions(g.op(unreal.MaterialExpressionMultiply, arg, None, const_b=1.37), "", cosine, "")
-    tip = g.op(unreal.MaterialExpressionMultiply, vc, vc, "R", "R")
-    dx = g.op(unreal.MaterialExpressionMultiply, g.op(unreal.MaterialExpressionMultiply, sine, None, const_b=9.0), tip)
-    dy = g.op(unreal.MaterialExpressionMultiply, g.op(unreal.MaterialExpressionMultiply, cosine, None, const_b=5.0), tip)
-    xy = g.node(unreal.MaterialExpressionAppendVector)
-    g.mel.connect_material_expressions(dx, "", xy, "A")
-    g.mel.connect_material_expressions(dy, "", xy, "B")
-    xyz = g.node(unreal.MaterialExpressionAppendVector)
-    g.mel.connect_material_expressions(xy, "", xyz, "A")
-    g.mel.connect_material_expressions(g.const(0.0), "", xyz, "B")
-    g.out(xyz, unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
+    g.out(g.wind(g.mul(v, v)), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
+    return g.done()
+
+
+def _material_flowers(tex):
+    g = _Graph("IslandFlowers")
+    if g.exists:
+        return g.mat
+    g.mat.set_editor_property("two_sided", True)
+    g.mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+    sample = g.tex(tex["flowers"], g.node(unreal.MaterialExpressionTextureCoordinate))
+    g.out(sample, unreal.MaterialProperty.MP_BASE_COLOR, "RGB")
+    g.out(sample, unreal.MaterialProperty.MP_OPACITY_MASK, "A")
+    g.out(g.mul(sample, None, "RGB", k=0.15), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.wind(g.const(0.45), 0.6), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
     return g.done()
 
 
@@ -385,33 +478,43 @@ def _assets_of(folder, cls):
 
 
 def _import_island():
-    """Imports the painted textures, the island and the grass; returns (island mesh, grass mesh)."""
+    """Imports the painted textures, the island and the meadow; returns (island mesh, meadow mesh)."""
     root = os.path.join(unreal.Paths.project_dir(), ISLAND_DIR)
     tex_dir = os.path.join(root, "textures")
     for png in sorted(os.listdir(tex_dir)):
         if png.endswith(".png"):
             _import(os.path.join(tex_dir, png), TEXTURE_ASSET_DIR)
     tex = {t.get_name(): t for t in _assets_of(TEXTURE_ASSET_DIR, unreal.Texture2D)}
-    missing = [n for n in ("grass", "sand", "cliff", "bark", "leaf", "blossom") if n not in tex]
+    needed = ("grass", "sand", "cliff", "path", "bark", "leaf", "blossom", "flowers", "splat")
+    missing = [n for n in needed if n not in tex]
     if missing:
         raise RuntimeError(f"textures missing after import: {missing}")
+    # The splat map is data, not colour: keep it linear, uncompressed and clamped at the edges.
+    splat = tex["splat"]
+    splat.set_editor_property("srgb", False)
+    splat.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_VECTOR_DISPLACEMENTMAP)
+    splat.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP)
+    splat.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
+    unreal.EditorAssetLibrary.save_loaded_asset(splat)
 
     _import(os.path.join(root, ISLAND_GLB), ISLAND_ASSET_DIR)
     _import(os.path.join(root, GRASS_GLB), GRASS_ASSET_DIR)
     island = next(iter(_assets_of(ISLAND_ASSET_DIR, unreal.StaticMesh)), None)
-    grass = next(iter(_assets_of(GRASS_ASSET_DIR, unreal.StaticMesh)), None)
+    meadow = next(iter(_assets_of(GRASS_ASSET_DIR, unreal.StaticMesh)), None)
     if island is None:
         raise RuntimeError("island mesh missing after import")
 
     materials = {
         "terrain": _material_terrain(tex),
         "rock": _material_rock(tex),
-        "bark": _material_textured("IslandBark", tex["bark"]),
-        "leaf": _material_textured("IslandLeaf", tex["leaf"], lift=0.22),
-        "blossom": _material_textured("IslandBlossom", tex["blossom"], lift=0.22),
-        "grass": _material_grass(),
+        "bark": _material_bark(tex),
+        "wood": _material_bark(tex, "IslandBenchWood", tint="FFE6CC"),
+        "leaf": _material_canopy("IslandLeaf", tex["leaf"], "56785A", "D6E592"),
+        "blossom": _material_canopy("IslandBlossom", tex["blossom"], "C07888", "FFE6DC"),
+        "grass": _material_grass(tex),
+        "flower": _material_flowers(tex),
     }
-    for mesh in filter(None, (island, grass)):
+    for mesh in filter(None, (island, meadow)):
         for index, slot in enumerate(mesh.get_editor_property("static_materials")):
             names = [str(slot.get_editor_property("material_slot_name"))]
             current = slot.get_editor_property("material_interface")
@@ -430,7 +533,7 @@ def _import_island():
     if body:
         body.set_editor_property("collision_trace_flag", unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
     unreal.EditorAssetLibrary.save_loaded_asset(island)
-    return island, grass
+    return island, meadow
 
 
 def _island_transform(mesh):
@@ -511,9 +614,9 @@ def build(force=False):
     b = _Builder()
 
     def sky():
-        sun = b.spawn(unreal.DirectionalLight, "Sun", (0, 0, 1000), rot=(0, -14, 215))
+        sun = b.spawn(unreal.DirectionalLight, "Sun", (0, 0, 1000), rot=(0, -28, 215))  # warm late afternoon
         sc = sun.get_component_by_class(unreal.DirectionalLightComponent)
-        sc.set_editor_property("intensity", 6.0)
+        sc.set_editor_property("intensity", 5.0)
         sc.set_editor_property("light_color", _srgb_color("FFE3BE"))
         sc.set_editor_property("atmosphere_sun_light", True)
         b.spawn(unreal.SkyAtmosphere, "SkyAtmosphere")
@@ -533,7 +636,7 @@ def build(force=False):
         settings.set_editor_property("override_auto_exposure_bias", True)
         settings.set_editor_property("auto_exposure_bias", 0.3)
         settings.set_editor_property("override_color_saturation", True)
-        settings.set_editor_property("color_saturation", unreal.Vector4(1.05, 1.08, 1.0, 1.1))
+        settings.set_editor_property("color_saturation", unreal.Vector4(1.0, 1.02, 0.98, 1.04))  # gentle, not punchy
         # Shadows lean blue-violet, highlights stay warm (house style; Genshin tints shadows too).
         settings.set_editor_property("override_color_gain_shadows", True)
         settings.set_editor_property("color_gain_shadows", unreal.Vector4(0.92, 0.94, 1.08, 1.0))
