@@ -29,3 +29,7 @@ desktop.ini
 
 # Office temp files
 ~$*
+
+# Python caches
+__pycache__/
+*.pyc
