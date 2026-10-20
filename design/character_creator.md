@@ -13,7 +13,9 @@ Settled by `design/DECISIONS.md` (2026-10-20): creation is deep, in the spirit o
 Where Winds Meet, but stays storybook painterly. Slider ranges keep stylized proportions and colours
 come from curated, hue-shiftable swatch bands. No stats. Looks are never locked.
 
-Anything marked **[needs OK]** is a proposal that needs the user's approval before it is canon.
+The user's answers to the open questions (2026-10-20) are logged in `design/DECISIONS.md` and applied
+here: Peoples differ in look only, the colours are approved, faith is not chosen in the creator, and
+the creator has six steps.
 
 ---
 
@@ -23,7 +25,7 @@ Anything marked **[needs OK]** is a proposal that needs the user's approval befo
 |---|---|---|
 | People ids | `Human`, `MoonlitElf`, `Deepkin` | `People = "MoonlitElf"` |
 | Frame ids | `FrameA` (display "Willow": narrower, lighter) and `FrameB` (display "Oak": broader, sturdier). Cosmetic only, not gendered. Every option works on both frames. | `Frame = "FrameB"` |
-| Category ids | `Body`, `Face`, `Eyes`, `Hair`, `Skin`, `Makeup`, `Outfit`, `Voice`. Plus `Lantern`, which holds the lantern shapes and glass channel and is shown only at step 6, never as an Appearance tab. | |
+| Category ids | `Body`, `Face`, `Eyes`, `Hair`, `Skin`, `Makeup`, `Outfit`, `Voice`. Plus `Lantern`, which holds the lantern shapes and glass channel and is shown only at step 5, never as an Appearance tab. | |
 | Section ids | PascalCase, listed per category below | `Face` > `Nose` |
 | Slider ids | `<Area>.<Name>`, PascalCase, no spaces or underscores. The area prefix is a body area, not always the category: always read the slider's `Category` field. Left/right pairs end in `L` / `R`. | `Face.JawWidth`, `Eyes.SizeL` |
 | Part ids | `<Slot>.<Name>` | `Hair.RopeBraid` |
@@ -55,23 +57,22 @@ sculptable (use the slider).
 
 The player is a passenger on a small sloop sailing toward Moonharbor at dusk, answering the
 Lamp-Heir's call. Each step is a moment on that voyage. The sun sinks across the steps, the
-lighthouse beam starts sweeping at step 5, the mist begins to rise at step 6, and the player lights
-their lantern on the dock after step 7 (T26 then drops them on the Harbor dock).
+lighthouse beam starts sweeping and the mist begins to rise at step 5, and the player lights
+their lantern on the dock after step 6 (T26 then drops them on the Harbor dock).
 
 The boat never stops: gentle swell, creaking ropes, gulls, wind in the sail. The character stands on
 deck the whole time so the player always sees their choices in dusk light.
 
 | # | Step | Moment on the voyage | What the screen shows | Default framing | Required? |
 |---|---|---|---|---|---|
-| 1 | People | The sloop leaves the last waystone. The skipper (an old Reach sailor) asks "Where do you hail from, friend?" | Three cards (Human, Moonlit elf, Deepkin) with a painted portrait, two lines of flavour and the flavour perk. Picking one swaps the deck character live and loads that People's first preset. Frame toggle (Willow / Oak) sits under the cards. | Full body | Yes |
+| 1 | People | The sloop leaves the last waystone. The skipper (an old Reach sailor) asks "Where do you hail from, friend?" | Three cards (Human, Moonlit elf, Deepkin) with a painted portrait and two lines of flavour. Peoples differ in look only. Picking one swaps the deck character live and loads that People's first preset. Frame toggle (Willow / Oak) sits under the cards. | Full body | Yes |
 | 2 | Appearance | Aft deck under the hanging stern lamp, a brass ship's mirror lashed to the mast. "Let's get a look at you before we make port." | The deep editor: category tabs down the left (Body, Face, Eyes, Hair, Skin, Makeup, Outfit, Voice), sections and sliders on the right, toolbar on top (undo, redo, symmetry, randomise, presets, share code, compare, lighting, expression, pose). Orbit and zoom on the character. | Changes per category (table below) | Yes (a preset is a valid answer) |
 | 3 | Path | Your sea chest is open on deck. | Seven path cards, each with its starting item laid in the chest (spyglass, staff and pack, trowel and seed pouch, tool roll, notebook, ledger and scales, lamp and pick), the branches it leads to, and the line "A head start, not a fence." The character holds the chosen item. | Upper body, item in hand | Yes |
-| 4 | Backstory | A keepsake from the chest: a letter, a charm, a recipe card. The skipper asks what brought you here. | Backstories for the chosen path (section 7) as letters, plus **Keep it to myself** (no backstory). One line per backstory on what it adds (flavour dialogue and a personal quest). | Upper body, keepsake in hand | No |
-| 5 | Faith | Ilwen's Lighthouse beam first sweeps over the deck. Small tokens hang by the mast. | Faith tokens to hang beside the lamp, plus **None**. "You can change this later." | Upper body, three-quarter, beam passing | No |
-| 6 | Lantern | Moonharbor's lights come into view; the mist starts curling off the water. | Lantern shapes on a rail, then a glass colour band with hue/value shift, previewed lit in the mist. "Your first treasure." | Lantern close-up: chest up, lantern held in both hands | Yes |
-| 7 | Name | The sloop ties up. The harbourmaster opens the ledger by lamplight. | The ledger page with your name being written in ink as you type, and a summary of the character (People, path, backstory, faith, lantern). Confirm, then the cut to lighting the lantern on the dock. | Upper body at the ledger, then full body on the dock | Yes |
+| 4 | Backstory | A keepsake from the chest: a letter, a charm, a recipe card. The skipper asks what brought you here. | Backstories for the chosen path (section 8.2) as letters, plus **Keep it to myself** (no backstory). One line per backstory on what it adds (flavour dialogue and a personal quest). | Upper body, keepsake in hand | No |
+| 5 | Lantern | Ilwen's Lighthouse beam sweeps over the deck, Moonharbor's lights come into view and the mist starts curling off the water. | Lantern shapes on a rail, then a glass colour band with hue/value shift, previewed lit in the mist. "Your first treasure." | Lantern close-up: chest up, lantern held in both hands | Yes |
+| 6 | Name | The sloop ties up. The harbourmaster opens the ledger by lamplight. | The ledger page with your name being written in ink as you type, and a summary of the character (People, path, backstory, lantern). Confirm, then the cut to lighting the lantern on the dock. | Upper body at the ledger, then full body on the dock | Yes |
 
-Steps can be revisited from a small ship's-log strip along the top (seven knots on a rope). Going
+Steps can be revisited from a small ship's-log strip along the top (six knots on a rope). Going
 back never resets later steps unless the choice is invalid (for example a backstory from another
 path, which is cleared with a note).
 
@@ -84,10 +85,10 @@ re-frames.
 | Framing id | Shows | Typical distance | Used for |
 |---|---|---|---|
 | `Full` | Whole body, head to feet, with a little deck | 260 cm | Step 1; Body: Frame, Proportions, Build, Posture; Outfit: all; Voice: Voice |
-| `Upper` | Waist up | 130 cm | Steps 3, 4, 5, 7; Body: Hands & feet (character raises hands, then looks down at feet when a foot slider is touched); Hair: Style, Accessories; Skin: Markings on neck/shoulders; Voice: Expression |
+| `Upper` | Waist up | 130 cm | Steps 3, 4, 6; Body: Hands & feet (character raises hands, then looks down at feet when a foot slider is touched); Hair: Style, Accessories; Skin: Markings on neck/shoulders; Voice: Expression |
 | `Face` | Head and neck, slightly from below eye line | 55 cm | Face: Shape, Forehead, Nose, Mouth, Ears (turns to profile when an ear or nose-projection slider is dragged); Hair: Colour, Brows, Facial hair; Skin: Tone, Details; Makeup: Lips, Cheeks, Face paint |
 | `Eyes` | Both eyes and brows, extreme close-up | 25 cm | Face: Eyes, Brows; Eyes: all; Makeup: Eyes |
-| `Lantern` | Chest up, lantern held at chest height | 80 cm | Step 6 |
+| `Lantern` | Chest up, lantern held at chest height | 80 cm | Step 5 |
 
 ---
 
@@ -412,7 +413,7 @@ mesh.
 | `Layer` | Outfit / Layer | yes | none | skeletal, leader pose | 7 |
 | `Voice` | Voice / Voice | no | `Voice.Warm1` | audio set | 8 |
 | `Expression` | Voice / Expression | no | `Expression.Calm` | anim pose (face) | 6 |
-| `Lantern` | Lantern (step 6) | no | `Lantern.Ships` | static mesh, socket `hand_r` | 9 |
+| `Lantern` | Lantern (step 5) | no | `Lantern.Ships` | static mesh, socket `hand_r` | 9 |
 
 **Total: 22 slots, 195 parts** (counting each listed part, not counting `None`).
 
@@ -587,7 +588,7 @@ brightness. `ULyrisAppearanceLibrary::ResolveColor` clamps both.
 
 Where a swatch matches a colour in the Harbor `PALETTE` it is named after it. The rest are new
 character colours, chosen to sit with that palette: warm, saturated, never neon, never grey-dead.
-**[needs OK]** from the Environment lane (see open questions).
+These new character colours are approved (see `design/DECISIONS.md`).
 
 ### 5.1 Channel list
 
@@ -806,14 +807,14 @@ too).
 | Real-world symbols: religious marks, flags, brand logos, text tattoos, real cultural or sacred markings | Avoids real-world meaning and harm; all markings and face paint come from Lyris. |
 | Child-like adult bodies | See 6.2. |
 | Gender-locked options or a gender selector | Frames are body shapes only. Beards, makeup, hairstyles and outfits work on both. |
-| Stat effects from any look | No stats in Lyris. A People perk is look and flavour only. |
+| Stat effects from any look, or People perks | No stats in Lyris. Peoples differ in look only. |
 
 ---
 
 ## 7. Peoples
 
-Each People has its own skin band, a few unique parts and slider ranges, and a small flavour perk.
-**No People has any stat or gameplay advantage.** Perk details are **[needs OK]**.
+Each People has its own skin band and a few unique parts and slider ranges. Peoples differ in look
+only: **no flavour perks and no stat or gameplay advantage.**
 
 | | Humans | Moonlit elves | Deepkin |
 |---|---|---|---|
@@ -823,13 +824,12 @@ Each People has its own skin band, a few unique parts and slider ranges, and a s
 | Markings | Harbour ink tattoos (4) | Moon sigils (6), glow at night and in mist | Scale patches (6), shimmer, more when wet |
 | Unique parts | | `Hair.Moonfall`, `Brows.MoonWisp` | `Hair.KelpTresses`, `Brows.ScaleRidge`, `FacialHair.Barbels` |
 | Unique sliders | | `Skin.Moonglow` | |
-| Flavour perk | **Harbour kin.** Dock folk treat you as one of their own: a few extra greetings and gossip lines in human ports, and a family keepsake (a cosmetic charm) in your starting chest. | **Moon-touched.** Your sigils and eyes glow softly in mist and moonlight, and the Observatory's old star charts have lines only you are prompted to read aloud (flavour text). | **Tide-sense.** Your scale patches shimmer and a faint trail of bubbles follows you when you swim, and near the bay you sometimes hear the sleeping star humming (ambient sound and a journal line). Swim speed and breath are the same as everyone's. |
 
 Presets per People (section 9.8) give each People six ready faces.
 
 ---
 
-## 8. Paths, backstories, faiths and lanterns
+## 8. Paths, backstories, lanterns and faiths
 
 From the RPG and Paths tabs of `design/Game_Concept.xlsx`. A path is a head start, not a fence: any
 path can reach any branch, and the path perk can be swapped later at an academy mentor or your home
@@ -867,25 +867,17 @@ Each adds flavour dialogue and a personal quest. `None` is always allowed.
 
 Grower, Trader and Seafarer have only one backstory each; more can come later.
 
-### 8.3 Faiths (step 5, optional)
-
-Changeable later. Ids: `TideMother`, `GreenHearth`, `Wayfarers`, `BrightCask`, `None`. The concept
-sheet says "and more"; the companion lore holds the full list and what each stands for, so the
-creator text for each faith is to be written from canon in a follow-up. The forbidden Hollow Star
-faith is **not** offered at creation.
-
-| Id | Faith | Token on the mast |
-|---|---|---|
-| `TideMother` | Tide Mother | A shell on a cord |
-| `GreenHearth` | Green Hearth | A sprig tied with red thread |
-| `Wayfarers` | Wayfarers | A worn waystone chip |
-| `BrightCask` | Bright Cask | A little brass cask charm |
-| `None` | None | (nothing hung) |
-
-### 8.4 Lanterns (step 6)
+### 8.3 Lanterns (step 5)
 
 Nine shapes (section 4.12) and the `Lantern.Glass` band (section 5.2). The lantern is the player's
 first collectible; more shapes and glass colours are found and made later.
+
+### 8.4 Faiths (not part of the creator)
+
+Faith is not chosen in the character creator. Players join a faith when they find it through a quest
+in the world. The faiths named in the concept sheet are Tide Mother, Green Hearth, Wayfarers and
+Bright Cask, with more in the lore. `FLyrisCharacterProfile.Faith` stays `None` when a character is
+created.
 
 ---
 
@@ -940,7 +932,7 @@ Rules so random faces stay coherent:
   and then only 20% of the time.
 - People-restricted entries are only picked for the current People.
 - The adult proportions guard (6.2) always applies.
-- Lantern, name, path, backstory and faith are never randomised by the dice in step 2. Steps 3 to 6
+- Lantern, name, path and backstory are never randomised by the dice in step 2. Steps 3 to 5
   each have their own small "surprise me" button.
 
 ### 9.4 Undo and redo
@@ -978,7 +970,7 @@ by side in the same lighting.
 ### 9.8 Presets per People
 
 Six presets per People, built as complete `FLyrisAppearance` values (and so also valid share codes).
-Picking a People in step 1 loads its first preset. Names **[needs OK]**:
+Picking a People in step 1 loads its first preset. Names (approved):
 
 - **Humans:** Harbor Hand, Lamplighter, Old Salt, Orchard Keeper, Clerk of Moonharbor, Drover.
 - **Moonlit elves:** Moonwatcher, Star Archivist, Night Gardener, Pale Sail, Lantern Bearer,
@@ -1012,9 +1004,10 @@ with the same four previews:
 | Tailor | Moonharbor | Outfit category, and the outfit sets you have collected |
 | Mirror | Your home, and the dormitory at the Academy | Everything: Body, Face, Eyes, Hair, Skin, Makeup, Outfit, Voice, Frame |
 
-Changes are free (calm-by-default). Changing People is **[needs OK]**: proposed as allowed at the
-home mirror, keeping your look as close as possible (sliders and parts that exist for both are kept;
-the skin pick falls back to the new People's matching band position).
+Changes are free (calm-by-default). A character's People can also be changed after creation; where
+that happens (mirror, academy or elsewhere) is still to be decided. When it changes, the look is kept
+as close as possible: sliders and parts that exist for both Peoples are kept, and the skin pick falls
+back to the new People's matching band position.
 
 ---
 
@@ -1028,6 +1021,6 @@ the skin pick falls back to the new People's matching band position).
 - **UI (T24):** the framings in 2.1, sculpt map in 9.1, the wildness table in 9.3, lighting rigs in
   9.5 and the import notes in 9.9.
 - **Environment (T25):** morph target names as listed in section 3 tables, two frames (Willow and Oak),
-  ear cut-out variants for long-ear Peoples, and a review of the new swatch hex values in section 5.
+  and ear cut-out variants for long-ear Peoples.
 - **Lead (T26):** none beyond the flow in section 2 (the voyage stage and lighting the lantern on the
   dock).
