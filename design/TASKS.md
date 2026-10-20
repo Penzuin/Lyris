@@ -27,6 +27,11 @@ harvesting, farming and interacting with the world (T10 to T16).
 | T14 | Give the player character the interaction and inventory components and an Interact input | Player | T10, T11 | todo | | Hand-off from Harvest. Input actions are `.uasset`s, which cloud agents can't author: create them in code or via an editor script |
 | T15 | Place sample rocks, trees and a farming plot on the Harbor island; bump `BUILD_VERSION` | Environment | T12, T13 | todo | | Hand-off from Harvest |
 | T16 | Interaction prompt and a simple inventory view | UI | T10, T11 | todo | | |
+| T17 | Sea state: one shared wave field (a few summed Gerstner waves) with a `GetWaveHeight/Normal(XY, Time)` query every system reads, so boat, swimmer and visuals agree. Calm swell in lamp-lit waters, longer rolling swells out in unlit waters, room for storms later | World | | todo | | Added by the user on 2026-10-20: water like Sea of Thieves, fitted to our pillars. Same "one shared source" pattern as T5 wind |
+| T18 | Boat buoyancy: replace the sine bob in `ALyrisBoat::UpdateFloating` with a few float points sampling T17, so the boat rides up and over swells, pitches into them and heels; spray at the bow at speed | Sailing | T17, T5 | todo | | Wait for T5 to merge, both edit `LyrisBoat.cpp` |
+| T19 | Sea surface that matches T17: a finer sea mesh and a material that displaces with the same wave values, foam on crests and at the shoreline, painterly palette colours | Environment | T17 | todo | | Hand-off from World. Wave params must come from one place so visuals never drift from physics |
+| T20 | Swimming: falling in means swimming, not a teleport. Bob on the waves, swim to shore, climb aboard by a ladder. No drowning and no stamina timer; the tide still carries you home if you drift too far | Player | T17 | todo | | Calm-by-default pillar; replaces the "Splash!" teleport in `LyrisBoat.cpp` (Sailing removes it in T18) |
+| T21 | Rough water and the hull: in big swells or on rocks the boat takes on water and grows sluggish; bail with a bucket and patch with planks. Never sinks for good: a swamped boat drifts back to the nearest lit harbor | Sailing | T18 | todo | | The Sea of Thieves loop without the loss; needs the user's OK on "never sinks" before it starts |
 
 ## Next
 
