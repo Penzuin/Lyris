@@ -28,6 +28,18 @@ dock lamp that holds back the mist at night.
 | T8 | Decide whether generated `Content/Lyris/` assets are committed or rebuilt on each PC | Lead | user decision | todo | | Right now they are rebuilt by the script |
 | T9 | Open questions from the concept sheet: how seas and islands sit around the three regions; the central mystery | Design | | todo | | |
 
+## Combat (spec: `design/combat.md`)
+
+| ID | Task | Lane | Depends on | Status | Branch | Notes |
+|---|---|---|---|---|---|---|
+| C1 | Combat design spec: solo Genshin-style action, attunements, world reactions, enemies, defeat | Design | | in review | `lane/design-C1-combat-spec` | |
+| C2 | Combat prototype: combo, charged attack, dash with perfect-dodge Lull, stamina, soft target, hit-stop; Lantern attunement (Flare Art, Lighthouse Beam Surge); Dispel reaction; mist crawler enemy; training ground actor | Combat | C1 | todo | | Reads keys directly until C4 lands |
+| C3 | Place the combat training ground on the island in the Harbor map; bump `BUILD_VERSION` | Environment | C2 | todo | | Hand-off task |
+| C4 | Enhanced Input actions for combat (attack, dash, Art, Surge, lock-on) and gamepad mapping; replace C2's direct key reads | Player | C2 | todo | | |
+| C5 | Combat HUD: health, stamina, Art cooldown, Surge charge, enemy health and poise | UI | C2 | todo | | |
+| C6 | Real attack, dodge and hit animations (montages) instead of mannequin placeholders | Combat | C2 | todo | | Needs animation assets |
+| C7 | Defeat returns you to the last lamp you lit | Combat | C2, T3 | todo | | Prototype uses the dock |
+
 ## Proposed
 
 Ideas or requests an agent ran into that are not scheduled yet.

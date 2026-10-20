@@ -13,6 +13,7 @@ file, the lead edits it.
 | **Player** | `Source/Lyris/LyrisCharacter.*`, `Source/Lyris/LyrisPlayerController.*`, `Source/Lyris/Player/` *(new)*, `Content/Input/`, `Config/DefaultInput.ini` *(shared with Lead: Player proposes, Lead merges)* | Walking, boarding, camera, input actions |
 | **Environment** | `Art/`, `Content/Python/` (Harbor build script and `init_unreal.py`), `Content/Lyris/Maps/` *(generated)*, `Content/Lyris/Materials/` *(generated)* | Islands, terrain, foliage, materials, palette, placing actors in maps |
 | **UI** | `Source/Lyris/UI/` *(new)*, `Content/Lyris/UI/` *(new)* | HUD, menus, collection book, journal |
+| **Combat** | `Source/Lyris/Combat/` *(new)*, `Content/Lyris/Combat/` *(new)* | Player combat, attunements and reactions, enemies, encounters (spec: `design/combat.md`) |
 
 ## Reserved lanes (no owner yet)
 
