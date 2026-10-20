@@ -1,0 +1,538 @@
+<title>Wayfarer's Breath</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one dusk-lit column; the playable stage leads, the spec follows as a field-notebook. Deliberately single dark theme (the game's own dusk). */
+:root{
+  color-scheme: dark;
+  --ink:#0f1522;        /* night ink ground */
+  --slate:#18213a;      /* panel */
+  --mist:#2a3556;       /* rules, borders */
+  --parch:#efe4cc;      /* text */
+  --dim:#a9b0c7;        /* secondary text */
+  --gold:#f2c14e;       /* stamina full */
+  --ember:#ef6b4f;      /* stamina low */
+  --tea:#7fe0d0;        /* bonus stamina */
+  --f-display:"Alegreya SC", "Palatino Linotype", Georgia, serif;
+  --f-body:"Alegreya Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+body{background:var(--ink);color:var(--parch);font-family:var(--f-body);font-size:17px;line-height:1.55}
+.wrap{max-width:1020px;margin:0 auto;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:28px 64px;display:flex;flex-direction:column;gap:28px}
+header{display:flex;flex-direction:column;gap:6px}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(34px,6vw,54px);line-height:1.02;margin:0;text-wrap:balance}
+.lede{color:var(--dim);max-width:62ch;margin:0}
+h2{font-family:var(--f-display);font-weight:700;font-size:26px;margin:0;text-wrap:balance;color:var(--parch)}
+h3{font-family:var(--f-display);font-weight:500;font-size:19px;margin:0;color:var(--gold)}
+p{margin:0}
+
+/* stage */
+.stage{position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--mist);background:#0b1020;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+canvas{display:block;width:100%;height:auto;aspect-ratio:960/520;outline:none;touch-action:none}
+canvas:focus-visible{box-shadow:inset 0 0 0 2px var(--gold)}
+.veil{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,14,26,.45);cursor:pointer;border:0;color:var(--parch);font-family:var(--f-display);font-size:22px;letter-spacing:.04em;width:100%}
+.veil span{padding:10px 20px;border:1px solid var(--gold);border-radius:999px;background:rgba(15,21,34,.8)}
+.hudline{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;font-family:var(--f-mono);font-size:13px;color:var(--dim)}
+.hudline b{color:var(--parch);font-weight:500;font-variant-numeric:tabular-nums}
+.state{padding:2px 10px;border-radius:999px;border:1px solid var(--mist);color:var(--parch)}
+.keys{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:14px;color:var(--dim)}
+kbd{font-family:var(--f-mono);font-size:12px;padding:1px 6px;border:1px solid var(--mist);border-bottom-width:2px;border-radius:5px;color:var(--parch);background:var(--slate)}
+
+.pad{display:none;gap:8px;flex-wrap:wrap;justify-content:space-between}
+.pad .grp{display:flex;gap:8px}
+.pad button{font-family:var(--f-mono);font-size:14px;min-width:52px;height:48px;border-radius:10px;border:1px solid var(--mist);background:var(--slate);color:var(--parch);touch-action:none;user-select:none;-webkit-user-select:none}
+.pad button.on{border-color:var(--gold);color:var(--gold)}
+@media (pointer:coarse){.pad{display:flex}}
+
+/* notebook */
+.sec{display:flex;flex-direction:column;gap:14px;padding-top:22px;border-top:1px solid var(--mist)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:22px}
+.cols > div{display:flex;flex-direction:column;gap:8px;min-width:0}
+ul{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:5px}
+li::marker{color:var(--gold)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:15px;min-width:520px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--mist);vertical-align:top}
+th{font-family:var(--f-mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:400}
+td.n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--gold);white-space:nowrap}
+.anat{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.anat div{padding:12px 14px;border-radius:10px;background:var(--slate);display:flex;flex-direction:column;gap:4px}
+.anat b{font-family:var(--f-display);font-weight:500;font-size:17px}
+.anat small{color:var(--dim);font-size:15px;line-height:1.45}
+.sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px;vertical-align:1px}
+code{font-family:var(--f-mono);font-size:13.5px;color:var(--tea)}
+.note{color:var(--dim);font-size:15px}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Lyris · Player lane · movement spec v0.1</div>
+    <h1>Wayfarer's Breath</h1>
+    <p class="lede">Jumping, sprinting and climbing in Lyris all draw from one stamina pool, the Breath. Play with it below, then read the numbers and the build notes.</p>
+  </header>
+
+  <div class="stage">
+    <canvas id="cv" width="960" height="520" tabindex="0" aria-label="Movement prototype"></canvas>
+    <button class="veil" id="veil" type="button"><span>Click to play</span></button>
+  </div>
+
+  <div class="pad" id="pad">
+    <div class="grp">
+      <button data-k="ArrowLeft" id="b-l">◀</button><button data-k="ArrowUp" id="b-u">▲</button><button data-k="ArrowDown" id="b-d">▼</button><button data-k="ArrowRight" id="b-r">▶</button>
+    </div>
+    <div class="grp">
+      <button data-k="ShiftLeft" id="b-s">Sprint</button><button data-k="Space" id="b-j">Jump</button><button data-k="KeyT" id="b-t">Tea</button>
+    </div>
+  </div>
+
+  <div class="hudline">
+    <span class="state" id="st">Walking</span>
+    <span>Breath <b id="sv">100 / 100</b></span>
+    <span>Tea <b id="tv">0</b></span>
+  </div>
+  <div class="keys">
+    <span><kbd>A</kbd><kbd>D</kbd> move</span>
+    <span><kbd>Shift</kbd> sprint</span>
+    <span><kbd>Space</kbd> jump (hold for higher)</span>
+    <span>Walk into the cliff, then <kbd>W</kbd><kbd>S</kbd> climb</span>
+    <span><kbd>Space</kbd> on a wall: leap up, or away if holding away</span>
+    <span><kbd>T</kbd> drink lantern tea</span>
+    <span><kbd>R</kbd> reset</span>
+  </div>
+
+  <section class="sec">
+    <h2>The numbers</h2>
+    <p class="note">All values are starting points for playtesting. Distances use Unreal units at 100 per metre.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Action</th><th>Speed / force</th><th>Breath cost</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Walk</td><td class="n">4.5 m/s</td><td class="n">0</td><td>Default pace. Breath refills while walking.</td></tr>
+        <tr><td>Sprint</td><td class="n">7.2 m/s</td><td class="n">18 / s</td><td>About 5.5 s from full. Only drains while actually moving on the ground.</td></tr>
+        <tr><td>Jump</td><td class="n">≈ 1.2 m apex</td><td class="n">0</td><td>Free, so casual hopping never feels taxed. Release early for a short hop.</td></tr>
+        <tr><td>Sprint jump</td><td class="n">+ carries sprint speed</td><td class="n">5</td><td>Small cost so sprint-hopping is not a free speed exploit.</td></tr>
+        <tr><td>Climb (moving)</td><td class="n">2.2 m/s</td><td class="n">10 / s</td><td>Any surface tagged climbable. Rain or ice: ×1.5 cost.</td></tr>
+        <tr><td>Climb (holding still)</td><td class="n">0</td><td class="n">3 / s</td><td>Lets players stop and look around without panic.</td></tr>
+        <tr><td>Climb leap</td><td class="n">≈ 1.5 m up</td><td class="n">20</td><td>The bar previews this cost while you climb.</td></tr>
+        <tr><td>Wall kick</td><td class="n">push off + up</td><td class="n">12</td><td>Leap while holding away from the wall.</td></tr>
+        <tr><td>Mantle</td><td class="n">auto at ledge</td><td class="n">0</td><td>Reaching a top always succeeds, even at 1 Breath.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="cols">
+      <div>
+        <h3>Recovery</h3>
+        <ul>
+          <li>Refill waits <b>0.8 s</b> after the last spend.</li>
+          <li>Then ramps from <b>20/s</b> to <b>50/s</b> over 1.5 s. A full bar back from empty takes about 3 s.</li>
+          <li>No refill while climbing or sprinting. Refill in the air is allowed.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Running dry</h3>
+        <ul>
+          <li>At 0 you are <b>Winded</b>: sprint and climbing lock, refill runs at 70%.</li>
+          <li>Winded on a wall means you slide off. No fall damage under 6 m, so cliffs feel brave, not punishing.</li>
+          <li>Winded clears at <b>35%</b>. The bar marks that point with a small gold notch.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Feel helpers</h3>
+        <ul>
+          <li>Coyote time 0.12 s and jump buffer 0.15 s.</li>
+          <li>Variable jump: letting go early halves upward speed.</li>
+          <li>Air control at 60% of ground acceleration.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>The bar</h2>
+    <p>Most games show a plain wedge that fills and empties. The Breath ring sits beside the character's head, hides when full, and tries to tell you five things at a glance instead of one.</p>
+    <div class="anat">
+      <div><b><span class="sw" style="background:var(--gold)"></span>Living colour</b><small>Warm gold when full, deepening to amber and ember as you tire. Below 25% the ring breathes with a slow glow instead of a harsh flash.</small></div>
+      <div><b><span class="sw" style="background:#fff2cf"></span>Drain trail</b><small>A pale ghost arc lingers where Breath just was, then catches up. You can read how much that last leap cost.</small></div>
+      <div><b><span class="sw" style="background:#6fa3d8"></span>Breath vial</b><small>The centre is a small glass vial whose water level and ripples match the ring. It cracks when you are Winded.</small></div>
+      <div><b><span class="sw" style="background:#ffffff"></span>Cost preview</b><small>While climbing, the slice a leap would spend is outlined. If you cannot afford it, the outline turns red before you try.</small></div>
+      <div><b><span class="sw" style="background:var(--tea)"></span>Tea halo</b><small>Food and drink add a thin outer ring of bonus Breath that is spent first, so the main bar stays honest.</small></div>
+      <div><b><span class="sw" style="background:#b98a2e"></span>Recovery notch</b><small>When Winded, a notch at 35% shows exactly when sprint and climbing return.</small></div>
+    </div>
+    <p class="note">Growth: Academy training adds max Breath in steps of 20 (100 → 200). Each step shows as an extra tick on the ring rather than a longer bar, so the ring never changes size on screen.</p>
+  </section>
+
+  <section class="sec">
+    <h2>Building it in Unreal</h2>
+    <div class="cols">
+      <div>
+        <h3>Player lane</h3>
+        <ul>
+          <li><code>ULyrisStaminaComponent</code> on the character: Current, Max, Bonus, LastSpendTime, bWinded. Exposes <code>TrySpend()</code>, <code>CanAfford()</code> and an <code>OnStaminaChanged</code> delegate.</li>
+          <li>Sprint and jump stay in <code>UCharacterMovementComponent</code>; climbing is a <code>MOVE_Custom</code> mode with wall-normal tracing and a ledge trace for the mantle.</li>
+          <li>Tuning lives in a <code>ULyrisMovementTuning</code> data asset so designers change numbers without code.</li>
+          <li>Server-authoritative stamina for multiplayer, with client prediction for sprint drain.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>UI lane</h3>
+        <ul>
+          <li>One UMG widget with a single material: radial arc, ghost arc, preview arc and vial driven by scalar parameters.</li>
+          <li>Widget is screen-projected beside the head socket and binds to <code>OnStaminaChanged</code>; no ticking logic in the widget.</li>
+          <li>Colour ramp in a curve asset so the Storybook palette can be tuned by eye.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = 960, H = 520;
+const veil = document.getElementById('veil');
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function fit(){
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = W*dpr; cv.height = H*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+fit(); addEventListener('resize', fit);
+
+// ---------- input ----------
+const keys = new Set(); const pressed = new Set();
+const GAMEKEYS = ['Space','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
+addEventListener('keydown', e => {
+  if (document.activeElement !== cv) return;
+  if (GAMEKEYS.includes(e.code)) e.preventDefault();
+  if (!keys.has(e.code)) pressed.add(e.code);
+  keys.add(e.code);
+});
+addEventListener('keyup', e => keys.delete(e.code));
+cv.addEventListener('blur', () => { keys.clear(); veil.hidden = false; });
+cv.addEventListener('focus', () => { veil.hidden = true; });
+veil.addEventListener('click', () => cv.focus());
+document.querySelectorAll('#pad button').forEach(b => {
+  const k = b.dataset.k;
+  b.addEventListener('pointerdown', e => { e.preventDefault(); veil.hidden = true; if(!keys.has(k)) pressed.add(k); keys.add(k); b.classList.add('on'); });
+  const up = () => { keys.delete(k); b.classList.remove('on'); };
+  b.addEventListener('pointerup', up); b.addEventListener('pointerleave', up); b.addEventListener('pointercancel', up);
+});
+if (matchMedia('(pointer:coarse)').matches) veil.querySelector('span').textContent = 'Use the buttons below to play';
+const down = (...c) => c.some(k => keys.has(k));
+const hit = (...c) => c.some(k => pressed.has(k));
+
+// ---------- world ----------
+const solids = [
+  {x:0,y:460,w:960,h:60, ground:true},
+  {x:300,y:372,w:120,h:88},
+  {x:600,y:140,w:150,h:320},
+  {x:850,y:290,w:110,h:170},
+];
+const CLIMB_MIN_H = 80;
+// pre-baked stone strokes
+const rng = (s => () => (s = (s*16807)%2147483647)/2147483647)(7);
+const stoneMarks = solids.filter(s=>!s.ground).map(s => Array.from({length: Math.floor(s.w*s.h/900)}, () => ({x:s.x+rng()*s.w, y:s.y+rng()*s.h, l:6+rng()*18, a:(rng()-.5)*.5})));
+const stars = Array.from({length:70}, () => ({x:rng()*W, y:rng()*260, r:rng()*1.3+.3, p:rng()*6}));
+const grass = Array.from({length:180}, () => ({x:rng()*W, h:4+rng()*9, lean:(rng()-.5)*5}));
+
+// ---------- tuning (px, 60 px = 1 m) ----------
+const T = {
+  walk:270, sprint:432, accG:2600, accA:1560, grav:2300, jumpV:740, cut:.5,
+  climb:132, coyote:.12, buffer:.15,
+  sprintDrain:18, climbDrain:10, hangDrain:3, sprintJump:5, leap:20, kick:12,
+  delay:.8, regenLo:20, regenHi:50, ramp:1.5, windedAt:35, windedRate:.7, teaAmt:50
+};
+
+// ---------- state ----------
+let P, S, parts, time = 0;
+function reset(){
+  P = {x:120,y:400,w:22,h:40,vx:0,vy:0,ground:false,climb:null,side:0,face:1,coy:0,buf:0,lunge:0,regrab:0,jumpHeld:false,scarf:[]};
+  S = {max:100,cur:100,bonus:0,ghost:100,last:-9,winded:false,alpha:0,shake:0,teaCd:0,flash:0};
+  parts = [];
+}
+reset();
+
+function spend(n){
+  if (n<=0) return;
+  const fromBonus = Math.min(S.bonus, n); S.bonus -= fromBonus; n -= fromBonus;
+  S.cur -= n; S.last = time;
+  if (S.cur <= 0){ S.cur = 0; if(!S.winded){ S.winded = true; S.shake = .35; } }
+}
+const total = () => S.cur + S.bonus;
+const canAfford = n => !S.winded && total() >= n;
+
+function overlap(a,b){ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
+function wallAt(side){
+  const probe = {x: side>0 ? P.x+P.w : P.x-2, y:P.y+4, w:2, h:P.h-8};
+  return solids.find(s => !s.ground && s.h >= CLIMB_MIN_H && overlap(probe, s));
+}
+
+function step(dt){
+  time += dt;
+  const L = down('ArrowLeft','KeyA'), R = down('ArrowRight','KeyD');
+  const U = down('ArrowUp','KeyW'), D = down('ArrowDown','KeyS');
+  const dir = (R?1:0) - (L?1:0);
+  if (dir) P.face = dir;
+  if (hit('KeyR')) reset();
+  if (hit('Space')) P.buf = T.buffer; else P.buf = Math.max(0, P.buf-dt);
+  if (hit('KeyT') && S.teaCd <= 0){ S.bonus = T.teaAmt; S.teaCd = 6; S.last = time - T.delay; burst(14,'#7fe0d0'); }
+  S.teaCd = Math.max(0, S.teaCd-dt);
+  P.regrab = Math.max(0, P.regrab-dt);
+  let using = false, state = 'Walking';
+
+  if (P.climb){
+    const r = P.climb;
+    let vy = 0;
+    if (P.lunge > 0){ P.lunge -= dt; vy = -440; }
+    else if (U) vy = -T.climb; else if (D) vy = T.climb;
+    if (P.lunge<=0) spend((vy ? T.climbDrain : T.hangDrain)*dt);
+    using = true;
+    if (P.buf > 0){
+      P.buf = 0;
+      const away = dir === -P.side;
+      const cost = away ? T.kick : T.leap;
+      if (canAfford(cost)){
+        spend(cost);
+        if (away){ P.climb=null; P.vx = -P.side*380; P.vy = -620; P.regrab=.3; burst(8,'#f2c14e'); }
+        else { P.lunge = .22; burst(6,'#f2c14e'); }
+      } else S.flash = .5;
+    }
+    if (P.climb){
+      P.y += vy*dt; P.x = P.side>0 ? r.x - P.w : r.x + r.w;
+      if (P.y + P.h*.55 < r.y){ // mantle
+        P.y = r.y - P.h; P.x = P.side>0 ? r.x + 4 : r.x + r.w - P.w - 4;
+        P.climb = null; P.vx = 0; P.vy = 0; P.lunge = 0;
+      } else if (P.y + P.h > r.y + r.h){ P.y = r.y + r.h - P.h; if (D) { P.climb=null; } }
+      else if (S.winded){ P.climb = null; P.vy = 60; P.regrab = .6; }
+      state = S.winded ? 'Winded' : 'Climbing';
+    }
+  }
+  if (!P.climb){
+    const wantSprint = down('ShiftLeft','ShiftRight') && dir && !S.winded && total() > 0;
+    const target = dir * (wantSprint ? T.sprint : T.walk);
+    const acc = P.ground ? T.accG : T.accA;
+    P.vx += Math.max(-acc*dt, Math.min(acc*dt, target - P.vx));
+    if (wantSprint && P.ground){ spend(T.sprintDrain*dt); using = true; }
+    P.coy = P.ground ? T.coyote : Math.max(0, P.coy-dt);
+    if (P.buf > 0 && P.coy > 0){
+      P.buf = 0; P.coy = 0; P.vy = -T.jumpV; P.ground=false; P.jumpHeld = true;
+      if (wantSprint) spend(T.sprintJump);
+    }
+    if (P.jumpHeld && !down('Space') && P.vy < 0){ P.vy *= T.cut; P.jumpHeld = false; }
+    if (P.vy >= 0) P.jumpHeld = false;
+    P.vy = Math.min(1400, P.vy + T.grav*dt);
+    // move X
+    P.x += P.vx*dt;
+    for (const s of solids) if (overlap(P,s)){ if (P.vx>0) P.x = s.x-P.w; else if (P.vx<0) P.x = s.x+s.w; P.vx = 0; }
+    P.x = Math.max(0, Math.min(W-P.w, P.x));
+    // move Y
+    P.y += P.vy*dt; P.ground = false;
+    for (const s of solids) if (overlap(P,s)){ if (P.vy>0){ P.y = s.y-P.h; P.ground = true; } else P.y = s.y+s.h; P.vy = 0; }
+    // grab
+    if (dir && P.regrab<=0 && !S.winded && total()>0){
+      const w = wallAt(dir);
+      if (w && (!P.ground || U) && P.y + P.h > w.y + 10){ P.climb = w; P.side = dir; P.vx = P.vy = 0; P.lunge = 0; }
+    }
+    state = S.winded ? 'Winded' : !P.ground ? 'Airborne' : wantSprint ? 'Sprinting' : (dir ? 'Walking' : 'Resting');
+  }
+
+  // regen
+  const since = time - S.last;
+  if (!using && since > T.delay){
+    let rate = T.regenLo + (T.regenHi-T.regenLo) * Math.min(1, (since - T.delay)/T.ramp);
+    if (S.winded) rate *= T.windedRate;
+    S.cur = Math.min(S.max, S.cur + rate*dt);
+  }
+  if (S.winded && S.cur >= T.windedAt){ S.winded = false; burst(10,'#f2c14e'); }
+  if (S.ghost < S.cur) S.ghost = S.cur;
+  else if (since > .45) S.ghost = Math.max(S.cur, S.ghost - 70*dt);
+  const show = S.cur < S.max - .01 || S.bonus > 0 || since < 1.2 || S.winded;
+  S.alpha += ((show?1:0) - S.alpha) * Math.min(1, dt*(show?10:3));
+  S.shake = Math.max(0, S.shake-dt); S.flash = Math.max(0, S.flash-dt);
+
+  // particles from the arc head while draining
+  if (using && since < .05 && Math.random() < .5 && !reduce){
+    const [hx,hy] = arcHead();
+    parts.push({x:hx,y:hy,vx:(Math.random()-.5)*40,vy:-20-Math.random()*40,life:.6,c:colorFor(S.cur/S.max)});
+  }
+  parts.forEach(p => { p.x += p.vx*dt; p.y += p.vy*dt; p.vy += 60*dt; p.life -= dt; });
+  parts = parts.filter(p => p.life > 0);
+
+  // scarf trail
+  P.scarf.unshift({x:P.x + P.w/2 - P.face*4, y:P.y + 13});
+  P.scarf.length = Math.min(P.scarf.length, 7);
+
+  pressed.clear();
+  document.getElementById('st').textContent = state;
+  document.getElementById('sv').textContent = `${Math.ceil(S.cur)} / ${S.max}`;
+  document.getElementById('tv').textContent = Math.ceil(S.bonus);
+}
+
+function burst(n,c){ if (reduce) return; const [x,y] = ringCenter(); for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, v=40+Math.random()*80; parts.push({x:x+Math.cos(a)*18,y:y+Math.sin(a)*18,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:.7,c}); } }
+
+// ---------- colour ----------
+function mix(a,b,t){ return a.map((v,i)=>Math.round(v+(b[i]-v)*t)); }
+const GOLD=[242,193,78], AMBER=[240,146,62], EMBER=[239,107,79], SLATE=[138,147,184];
+function colorFor(r){
+  const c = S.winded ? SLATE : r > .5 ? mix(AMBER,GOLD,(r-.5)/.5) : mix(EMBER,AMBER,Math.max(0,(r-.2)/.3));
+  return `rgb(${c})`;
+}
+
+// ---------- drawing ----------
+const R0 = 17, TH = 5;
+function ringCenter(){ return [P.x + P.w + 20, P.y - 4]; }
+const A0 = -Math.PI/2, FULL = Math.PI*2;
+function arcHead(){ const [x,y] = ringCenter(); const a = A0 + FULL*S.cur/S.max; return [x+Math.cos(a)*R0, y+Math.sin(a)*R0]; }
+
+function drawBackground(){
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#1b2350'); g.addColorStop(.55,'#4b3a6e'); g.addColorStop(.85,'#c9796a'); g.addColorStop(1,'#e7a774');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  for (const s of stars){ ctx.globalAlpha = .4 + .4*Math.sin(time*1.3 + s.p); ctx.fillStyle = '#fff6dd'; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,FULL); ctx.fill(); }
+  ctx.globalAlpha = 1;
+  // moon
+  ctx.fillStyle = 'rgba(255,240,205,.9)'; ctx.beginPath(); ctx.arc(160,90,26,0,FULL); ctx.fill();
+  ctx.fillStyle = '#1f2753'; ctx.beginPath(); ctx.arc(172,82,24,0,FULL); ctx.fill();
+  // hills
+  hill('#3a3566', 330, 50, .004, 0);
+  hill('#2c2b52', 380, 36, .007, 2);
+  hill('#20223f', 420, 26, .011, 4);
+}
+function hill(c, base, amp, f, ph){
+  ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(0,H);
+  for (let x=0;x<=W;x+=12) ctx.lineTo(x, base + Math.sin(x*f+ph)*amp + Math.sin(x*f*2.7+ph)*amp*.35);
+  ctx.lineTo(W,H); ctx.fill();
+}
+function drawSolids(){
+  solids.forEach((s,i) => {
+    if (s.ground){
+      ctx.fillStyle = '#1c2a2a'; ctx.fillRect(s.x,s.y,s.w,s.h);
+      ctx.fillStyle = '#3f6b4a'; ctx.fillRect(s.x,s.y,s.w,6);
+      ctx.strokeStyle = '#5d8f5a'; ctx.lineWidth = 1.5;
+      for (const b of grass){ ctx.beginPath(); ctx.moveTo(b.x, s.y+2); ctx.lineTo(b.x+b.lean + Math.sin(time*2+b.x)*1.2, s.y+2-b.h); ctx.stroke(); }
+      return;
+    }
+    const g = ctx.createLinearGradient(s.x,0,s.x+s.w,0);
+    g.addColorStop(0,'#4d4a6b'); g.addColorStop(.5,'#5d5878'); g.addColorStop(1,'#3a3858');
+    ctx.fillStyle = g; ctx.fillRect(s.x,s.y,s.w,s.h);
+    ctx.strokeStyle = 'rgba(20,18,40,.45)'; ctx.lineWidth = 1.4;
+    for (const m of stoneMarks[i-1]){ ctx.beginPath(); ctx.moveTo(m.x,m.y); ctx.lineTo(Math.min(s.x+s.w,m.x+m.l*Math.cos(m.a)), m.y+m.l*Math.sin(m.a)); ctx.stroke(); }
+    ctx.fillStyle = '#4f7d4f'; ctx.fillRect(s.x-2,s.y-4,s.w+4,7);
+    ctx.fillStyle = 'rgba(255,220,170,.12)'; ctx.fillRect(s.x+s.w-6,s.y,6,s.h);
+  });
+}
+function drawPlayer(){
+  const cx = P.x + P.w/2;
+  // scarf
+  ctx.strokeStyle = '#d9604b'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.beginPath(); P.scarf.forEach((p,i) => { const x = p.x - P.face*i*2.2, y = p.y + i*1.1; i ? ctx.lineTo(x,y) : ctx.moveTo(x,y); }); ctx.stroke();
+  // cloak
+  ctx.fillStyle = '#2f5d73';
+  ctx.beginPath(); ctx.moveTo(cx, P.y+8); ctx.lineTo(P.x+P.w+3, P.y+P.h-2); ctx.lineTo(P.x-3, P.y+P.h-2); ctx.closePath(); ctx.fill();
+  // legs
+  const run = P.ground ? Math.sin(time*(Math.abs(P.vx)/22)) * Math.min(1,Math.abs(P.vx)/200) : .5;
+  ctx.strokeStyle = '#1a2233'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(cx-3,P.y+P.h-4); ctx.lineTo(cx-3+run*6,P.y+P.h); ctx.moveTo(cx+3,P.y+P.h-4); ctx.lineTo(cx+3-run*6,P.y+P.h); ctx.stroke();
+  // head + hood
+  ctx.fillStyle = '#f0d3b2'; ctx.beginPath(); ctx.arc(cx + P.face*1.5, P.y+8, 6.5, 0, FULL); ctx.fill();
+  ctx.fillStyle = '#244a5c'; ctx.beginPath(); ctx.arc(cx - P.face*1.5, P.y+7, 8, Math.PI*.95, Math.PI*2.05); ctx.fill();
+  if (P.climb){ ctx.strokeStyle = '#f0d3b2'; ctx.lineWidth = 3; ctx.beginPath(); const wx = P.side>0 ? P.x+P.w+1 : P.x-1; ctx.moveTo(cx, P.y+16); ctx.lineTo(wx, P.y+8 + Math.sin(time*10)*(down('ArrowUp','KeyW','ArrowDown','KeyS')?3:0)); ctx.stroke(); }
+}
+
+function drawRing(){
+  if (S.alpha < .01) return;
+  let [x,y] = ringCenter();
+  if (S.shake > 0 && !reduce){ x += (Math.random()-.5)*4*S.shake/.35; y += (Math.random()-.5)*4*S.shake/.35; }
+  const r = S.cur/S.max, col = colorFor(r);
+  const scale = .7 + .3*S.alpha;
+  ctx.save(); ctx.globalAlpha = S.alpha; ctx.translate(x,y); ctx.scale(scale,scale);
+
+  // low-breath glow
+  if (!S.winded && r < .25){
+    const pulse = reduce ? .5 : .5 + .5*Math.sin(time*5);
+    const gg = ctx.createRadialGradient(0,0,8,0,0,34);
+    gg.addColorStop(0,`rgba(239,107,79,${.35*pulse})`); gg.addColorStop(1,'rgba(239,107,79,0)');
+    ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(0,0,34,0,FULL); ctx.fill();
+  }
+  // backing
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = 'rgba(8,10,22,.72)'; ctx.lineWidth = TH+4; ctx.beginPath(); ctx.arc(0,0,R0,0,FULL); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,240,210,.10)'; ctx.lineWidth = TH; ctx.beginPath(); ctx.arc(0,0,R0,0,FULL); ctx.stroke();
+
+  // vial
+  ctx.save(); ctx.beginPath(); ctx.arc(0,0,R0-TH-1,0,FULL); ctx.clip();
+  ctx.fillStyle = 'rgba(12,16,34,.85)'; ctx.fillRect(-20,-20,40,40);
+  const rv = R0-TH-1, level = rv - 2*rv*r;
+  const wg = ctx.createLinearGradient(0,-rv,0,rv);
+  wg.addColorStop(0, S.winded ? '#8a93b8' : '#9fd0f0'); wg.addColorStop(1, S.winded ? '#4a5378' : '#3b6fae');
+  ctx.fillStyle = wg; ctx.beginPath(); ctx.moveTo(-rv,rv);
+  for (let i=-rv;i<=rv;i+=1) ctx.lineTo(i, level + Math.sin(i*.6 + time*(reduce?0:5))*1.2);
+  ctx.lineTo(rv,rv); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.ellipse(-4,-5,2.2,4,-.5,0,FULL); ctx.fill();
+  if (S.winded){ ctx.strokeStyle = 'rgba(240,240,255,.8)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-6,-8); ctx.lineTo(-1,-2); ctx.lineTo(-4,2); ctx.lineTo(2,8); ctx.moveTo(-1,-2); ctx.lineTo(5,-4); ctx.stroke(); }
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255,240,210,.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(0,0,R0-TH-1,0,FULL); ctx.stroke();
+
+  // ghost (drain trail)
+  if (S.ghost > S.cur + .3){
+    ctx.strokeStyle = 'rgba(255,242,207,.75)'; ctx.lineWidth = TH;
+    ctx.beginPath(); ctx.arc(0,0,R0, A0 + FULL*r, A0 + FULL*S.ghost/S.max); ctx.stroke();
+  }
+  // main arc
+  if (r > 0.001){
+    ctx.strokeStyle = col; ctx.lineWidth = TH; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(0,0,R0, A0, A0 + FULL*r); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,240,.45)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(0,0,R0-1.2, A0, A0 + FULL*r); ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+  // notches at quarters
+  ctx.strokeStyle = 'rgba(8,10,22,.85)'; ctx.lineWidth = 1.6;
+  for (let q=1;q<4;q++){ const a = A0 + FULL*q/4; ctx.beginPath(); ctx.moveTo(Math.cos(a)*(R0-TH/2-1), Math.sin(a)*(R0-TH/2-1)); ctx.lineTo(Math.cos(a)*(R0+TH/2+1), Math.sin(a)*(R0+TH/2+1)); ctx.stroke(); }
+  // recovery notch while winded
+  if (S.winded){
+    const a = A0 + FULL*T.windedAt/S.max;
+    ctx.fillStyle = '#f2c14e'; ctx.beginPath(); ctx.arc(Math.cos(a)*(R0+TH/2+3), Math.sin(a)*(R0+TH/2+3), 2.2, 0, FULL); ctx.fill();
+  }
+  // cost preview while climbing
+  if (P.climb){
+    const cost = T.leap, ok = canAfford(cost);
+    const have = Math.min(S.cur, S.max);
+    const from = ok ? Math.max(0, have - Math.max(0, cost - S.bonus)) : 0;
+    const to = ok ? have : cost;
+    const bad = !ok || S.flash > 0;
+    ctx.strokeStyle = bad ? `rgba(239,107,79,${.6+.4*Math.sin(time*14)})` : 'rgba(255,255,255,.9)';
+    ctx.lineWidth = 1.2; ctx.setLineDash([2.5,2]);
+    ctx.beginPath(); ctx.arc(0,0,R0+TH/2+1.5, A0 + FULL*from/S.max, A0 + FULL*Math.max(to, from+0.5)/S.max); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // tea halo
+  if (S.bonus > 0.01){
+    ctx.strokeStyle = '#7fe0d0'; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+    ctx.shadowColor = '#7fe0d0'; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(0,0,R0+TH+3, A0, A0 + FULL*S.bonus/T.teaAmt); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.lineCap = 'butt';
+  }
+  // head spark
+  if (time - S.last < .08 && r > 0 && S.bonus <= 0){
+    const a = A0 + FULL*r;
+    ctx.fillStyle = '#fff8e0'; ctx.shadowColor = col; ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(Math.cos(a)*R0, Math.sin(a)*R0, 2.4, 0, FULL); ctx.fill(); ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+function drawParts(){ for (const p of parts){ ctx.globalAlpha = Math.max(0,p.life/.7); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x,p.y,1.8,0,FULL); ctx.fill(); } ctx.globalAlpha = 1; }
+
+let prev = performance.now();
+function frame(now){
+  const dt = Math.min(1/30, (now - prev)/1000); prev = now;
+  step(dt);
+  drawBackground(); drawSolids(); drawPlayer(); drawParts(); drawRing();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
