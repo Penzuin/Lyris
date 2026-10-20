@@ -11,6 +11,9 @@ class USpringArmComponent;
 class UCameraComponent;
 class ULyrisSwimComponent;
 class UInputAction;
+class UInputMappingContext;
+class ULyrisStaminaComponent;
+class ULyrisCharacterMovementComponent;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
@@ -35,6 +38,10 @@ class ALyrisCharacter : public ACharacter
 	/** Floating and swimming in the sea (T20) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<ULyrisSwimComponent> SwimComponent;
+
+	/** Breath: the stamina pool sprinting and climbing draw from (T32) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<ULyrisStaminaComponent> Stamina;
 	
 protected:
 
@@ -54,10 +61,22 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* MouseLookAction;
 
+	/** Hold to sprint. Left empty, a Left Shift action is made at runtime (T32) */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* SprintAction;
+
+	/** Toggle sprint (gamepad left stick click). Left empty, one is made at runtime (T32) */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* SprintToggleAction;
+
+	/** Mapping for the sprint actions. Left empty, one is made at runtime (T32) */
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputMappingContext* MovementMappingContext;
+
 public:
 
-	/** Constructor */
-	ALyrisCharacter();	
+	/** Constructor: swaps in the Lyris movement component (sprint, jump feel, climbing; T32) */
+	ALyrisCharacter(const FObjectInitializer& ObjectInitializer);	
 
 protected:
 
@@ -103,5 +122,30 @@ public:
 
 	/** While swimming, Jump kicks up or climbs out instead of jumping */
 	virtual void Jump() override;
+
+	/** Releasing jump cuts a jump short (T32) */
+	virtual void StopJumping() override;
+
+	/** Coming back from the boat: add the sprint mapping again (T32) */
+	virtual void PawnClientRestart() override;
+
+	/** Switches the gamepad sprint toggle off when you stop or run out of Breath (T32) */
+	virtual void Tick(float DeltaSeconds) override;
+
+	/** Returns the Breath stamina pool **/
+	FORCEINLINE ULyrisStaminaComponent* GetStamina() const { return Stamina; }
+
+	/** Returns the Lyris movement component **/
+	ULyrisCharacterMovementComponent* GetLyrisMovement() const;
+
+protected:
+
+	/** Sprint input handlers (T32) */
+	void SprintStarted(const FInputActionValue& Value);
+	void SprintCompleted(const FInputActionValue& Value);
+	void SprintToggled(const FInputActionValue& Value);
+
+	/** True while the gamepad sprint toggle is on; cleared when you stop moving or run out of Breath */
+	bool bSprintToggled = false;
 };
 
