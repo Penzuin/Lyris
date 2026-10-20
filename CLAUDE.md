@@ -46,5 +46,3 @@ overwriting each other's work. Read them before you change anything.
 - Unreal Engine 5.8, C++ module `Lyris`, Git LFS for binaries (see `.gitattributes`).
 - Cloud agents cannot run the editor or compile. Say so honestly in the PR; the user
   compiles on their PC.
-- `Variant_Combat`, `Variant_Platforming` and `Variant_SideScrolling` are leftover
-  Unreal template code. Do not build on them.

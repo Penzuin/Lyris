@@ -27,20 +27,7 @@ public class Lyris : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
 		PublicIncludePaths.AddRange(new string[] {
-			"Lyris",
-			"Lyris/Variant_Platforming",
-			"Lyris/Variant_Platforming/Animation",
-			"Lyris/Variant_Combat",
-			"Lyris/Variant_Combat/AI",
-			"Lyris/Variant_Combat/Animation",
-			"Lyris/Variant_Combat/Gameplay",
-			"Lyris/Variant_Combat/Interfaces",
-			"Lyris/Variant_Combat/UI",
-			"Lyris/Variant_SideScrolling",
-			"Lyris/Variant_SideScrolling/AI",
-			"Lyris/Variant_SideScrolling/Gameplay",
-			"Lyris/Variant_SideScrolling/Interfaces",
-			"Lyris/Variant_SideScrolling/UI"
+			"Lyris"
 		});
 
 		// Uncomment if you are using Slate UI
