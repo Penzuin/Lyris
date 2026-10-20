@@ -14,3 +14,4 @@ Settled choices. Agents follow these; only the user changes them. Newest at the 
 | 2026-10-20 | Multiple agents work in lanes (`design/LANES.md`), one branch per task, PRs merged by the lead. |
 | 2026-10-20 | Generated content (`Content/Lyris/`, the Harbor map and its materials) stays out of git; each PC rebuilds it from the scripts in `Content/Python/`. |
 | 2026-10-20 | The unused Unreal template variants (Combat, Platforming, SideScrolling) are removed. |
+| 2026-10-20 | Character creation is deep, in the spirit of Black Desert and Where Winds Meet (many sliders, face sculpting, layered colours, presets), but stays in the storybook painterly style: slider ranges keep stylized proportions and colours come from curated, hue-shiftable palettes. Supersedes "simple, readable sliders" for the Appearance step. |
