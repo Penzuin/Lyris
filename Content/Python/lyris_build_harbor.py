@@ -18,7 +18,7 @@ import os
 
 import unreal
 
-BUILD_VERSION = 3
+BUILD_VERSION = 4
 MAP_PATH = "/Game/Lyris/Maps/Harbor"
 MAT_DIR = "/Game/Lyris/Materials/Prototype"
 MARKER_PREFIX = "LyrisBuild_v"
@@ -130,6 +130,25 @@ def _make_sea_material():
     return mat
 
 
+def _make_textured_material(name, texture, roughness=0.9):
+    """A simple opaque material: the painted texture as base colour."""
+    asset_name = f"M_{name}_v{BUILD_VERSION}"  # versioned, so a rebuild never edits a material in use
+    path = f"{MAT_DIR}/{asset_name}"
+    if unreal.EditorAssetLibrary.does_asset_exist(path):
+        return unreal.load_asset(path)
+    mat = _new_material(asset_name)
+    mel = unreal.MaterialEditingLibrary
+    sample = mel.create_material_expression(mat, unreal.MaterialExpressionTextureSample, -400, 0)
+    sample.set_editor_property("texture", texture)
+    mel.connect_material_property(sample, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+    rough = mel.create_material_expression(mat, unreal.MaterialExpressionConstant, -400, 250)
+    rough.set_editor_property("r", roughness)
+    mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    mel.recompile_material(mat)
+    unreal.EditorAssetLibrary.save_loaded_asset(mat)
+    return mat
+
+
 class _Builder:
     def __init__(self):
         self.eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
@@ -232,16 +251,34 @@ def _import_island():
     unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
 
     mesh = None
+    textures = {}
     for asset_path in unreal.EditorAssetLibrary.list_assets(ISLAND_ASSET_DIR, recursive=True):
         asset = unreal.load_asset(asset_path)
         if isinstance(asset, unreal.StaticMesh) and mesh is None:
             mesh = asset
         elif isinstance(asset, unreal.Texture2D):
-            # Crisp Blockbench pixels.
-            asset.set_editor_property("filter", unreal.TextureFilter.TF_NEAREST)
-            unreal.EditorAssetLibrary.save_loaded_asset(asset)
+            textures[asset.get_name()] = asset
     if mesh is None:
         raise RuntimeError("no StaticMesh found after importing " + path)
+
+    # The importer's own glTF materials don't show the textures, so give every slot a
+    # plain material of ours that samples its painted texture directly.
+    slots = mesh.get_editor_property("static_materials")
+    for index, slot in enumerate(slots):
+        slot_name = str(slot.get_editor_property("material_slot_name"))
+        current = slot.get_editor_property("material_interface")
+        candidates = [slot_name, current.get_name() if current else ""]
+        key = None
+        for name in candidates:
+            name = name.replace("MI_", "").replace("M_Island_", "")
+            if name in textures:
+                key = name
+                break
+        if key is None:
+            unreal.log_warning(f"[Lyris] no texture found for island material slot {slot_name}")
+            continue
+        mesh.set_material(index, _make_textured_material(f"Island_{key}", textures[key]))
+        _log(f"island slot {slot_name} -> texture {key}")
 
     # Walk on the real shape of the island: use the visible triangles as collision.
     body = mesh.get_editor_property("body_setup")
