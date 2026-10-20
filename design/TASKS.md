@@ -33,7 +33,7 @@ harvesting, farming and interacting with the world (T10 to T16).
 | ID | Task | Lane | Depends on | Status | Branch | Notes |
 |---|---|---|---|---|---|---|
 | T7 | Remove the unused template variants (Combat, Platforming, SideScrolling) | Lead | | in progress | lane/lead-T7-remove-template | |
-| T9 | Open questions from the concept sheet: how seas and islands sit around the three regions; the central mystery | Design | | in progress | lane/design-T9-open-questions | |
+| T9 | Open questions from the concept sheet: how seas and islands sit around the three regions; the central mystery | Design | | in review | lane/design-T9-open-questions | Options in `design/lore/T9_open_questions.md`; waiting on the user to choose |
 
 ## Proposed
 
