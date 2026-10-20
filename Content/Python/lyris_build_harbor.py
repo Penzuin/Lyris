@@ -18,7 +18,7 @@ import os
 
 import unreal
 
-BUILD_VERSION = 4
+BUILD_VERSION = 5
 MAP_PATH = "/Game/Lyris/Maps/Harbor"
 MAT_DIR = "/Game/Lyris/Materials/Prototype"
 MARKER_PREFIX = "LyrisBuild_v"
@@ -44,6 +44,9 @@ MOONGLASS = "7AC0E6"  # cold lamp light, Quiet Reach palette
 # The island is the sculpted model from Art/TestIsland (make_island.py).
 ISLAND_DIR = "Art/TestIsland"
 ISLAND_GLB = "test_island.glb"
+GRASS_GLB = "test_island_grass.glb"
+GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass"
+TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island"
 ISLAND_META = "island_meta.json"
 ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland"
 
@@ -130,23 +133,146 @@ def _make_sea_material():
     return mat
 
 
-def _make_textured_material(name, texture, roughness=0.9):
-    """A simple opaque material: the painted texture as base colour."""
-    asset_name = f"M_{name}_v{BUILD_VERSION}"  # versioned, so a rebuild never edits a material in use
-    path = f"{MAT_DIR}/{asset_name}"
-    if unreal.EditorAssetLibrary.does_asset_exist(path):
-        return unreal.load_asset(path)
-    mat = _new_material(asset_name)
-    mel = unreal.MaterialEditingLibrary
-    sample = mel.create_material_expression(mat, unreal.MaterialExpressionTextureSample, -400, 0)
-    sample.set_editor_property("texture", texture)
-    mel.connect_material_property(sample, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
-    rough = mel.create_material_expression(mat, unreal.MaterialExpressionConstant, -400, 250)
-    rough.set_editor_property("r", roughness)
-    mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
-    mel.recompile_material(mat)
-    unreal.EditorAssetLibrary.save_loaded_asset(mat)
-    return mat
+# ----------------------------------------------------------------------------- island materials
+# Genshin-style surfaces (see Art/TestIsland/make_island.py for the vertex-colour layout).
+
+class _Graph:
+    """Small helper for building material graphs from Python."""
+
+    def __init__(self, name):
+        self.name = f"M_{name}_v{BUILD_VERSION}"  # versioned: a rebuild never edits a material in use
+        self.path = f"{MAT_DIR}/{self.name}"
+        self.exists = unreal.EditorAssetLibrary.does_asset_exist(self.path)
+        self.mat = unreal.load_asset(self.path) if self.exists else _new_material(self.name)
+        self.mel = unreal.MaterialEditingLibrary
+        self.y = 0
+
+    def node(self, cls, **props):
+        expr = self.mel.create_material_expression(self.mat, cls, -600, self.y)
+        self.y += 140
+        for key, value in props.items():
+            expr.set_editor_property(key, value)
+        return expr
+
+    def tex(self, texture):
+        return self.node(unreal.MaterialExpressionTextureSample, texture=texture)
+
+    def const(self, value):
+        return self.node(unreal.MaterialExpressionConstant, r=value)
+
+    def colour(self, hex_str):
+        return self.node(unreal.MaterialExpressionConstant3Vector, constant=_linear(hex_str))
+
+    def op(self, cls, a, b=None, a_out="", b_out="", const_b=None):
+        expr = self.node(cls) if const_b is None else self.node(cls, const_b=const_b)
+        self.mel.connect_material_expressions(a, a_out, expr, "A")
+        if b is not None:
+            self.mel.connect_material_expressions(b, b_out, expr, "B")
+        return expr
+
+    def lerp(self, a, b, alpha, a_out="", b_out="", alpha_out=""):
+        expr = self.node(unreal.MaterialExpressionLinearInterpolate)
+        self.mel.connect_material_expressions(a, a_out, expr, "A")
+        self.mel.connect_material_expressions(b, b_out, expr, "B")
+        self.mel.connect_material_expressions(alpha, alpha_out, expr, "Alpha")
+        return expr
+
+    def out(self, expr, prop, pin=""):
+        self.mel.connect_material_property(expr, pin, prop)
+
+    def done(self):
+        self.mel.recompile_material(self.mat)
+        unreal.EditorAssetLibrary.save_loaded_asset(self.mat)
+        return self.mat
+
+
+def _material_terrain(tex):
+    """Soft blend of grass / sand / rock by vertex colour, then a large-scale warm-to-cool tone."""
+    g = _Graph("IslandTerrain")
+    if g.exists:
+        return g.mat
+    vc = g.node(unreal.MaterialExpressionVertexColor)
+    grass, sand, rock = g.tex(tex["grass"]), g.tex(tex["sand"]), g.tex(tex["cliff"])
+    mix = g.op(unreal.MaterialExpressionAdd,
+               g.op(unreal.MaterialExpressionAdd,
+                    g.op(unreal.MaterialExpressionMultiply, grass, vc, "RGB", "R"),
+                    g.op(unreal.MaterialExpressionMultiply, sand, vc, "RGB", "G")),
+               g.op(unreal.MaterialExpressionMultiply, rock, vc, "RGB", "B"))
+    weight = g.op(unreal.MaterialExpressionMax,
+                  g.op(unreal.MaterialExpressionAdd, g.op(unreal.MaterialExpressionAdd, vc, vc, "R", "G"), vc, "", "B"),
+                  g.const(0.001))
+    blended = g.op(unreal.MaterialExpressionDivide, mix, weight)
+    tone = g.lerp(g.colour("FFF2DC"), g.colour("E4F0FF"), vc, alpha_out="A")
+    g.out(g.op(unreal.MaterialExpressionMultiply, blended, tone), unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.const(0.92), unreal.MaterialProperty.MP_ROUGHNESS)
+    return g.done()
+
+
+def _material_rock(tex):
+    """Faceted rock with grass on its upward faces (vertex colour R)."""
+    g = _Graph("IslandRock")
+    if g.exists:
+        return g.mat
+    vc = g.node(unreal.MaterialExpressionVertexColor)
+    g.out(g.lerp(g.tex(tex["cliff"]), g.tex(tex["grass"]), vc, "RGB", "RGB", "R"),
+          unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.const(0.9), unreal.MaterialProperty.MP_ROUGHNESS)
+    return g.done()
+
+
+def _material_textured(name, texture, lift=0.0):
+    """Painted texture as base colour. `lift` adds a little self-light so shadows never go too
+    dark (the minimum-light trick Genshin uses on trees)."""
+    g = _Graph(name)
+    if g.exists:
+        return g.mat
+    sample = g.tex(texture)
+    g.out(sample, unreal.MaterialProperty.MP_BASE_COLOR, "RGB")
+    if lift:
+        g.out(g.op(unreal.MaterialExpressionMultiply, sample, None, "RGB", const_b=lift),
+              unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.const(0.88), unreal.MaterialProperty.MP_ROUGHNESS)
+    return g.done()
+
+
+def _material_grass():
+    """Two-sided blades: dark at the root, light at the tip, per-clump tint, swaying in the wind."""
+    g = _Graph("IslandGrass")
+    if g.exists:
+        return g.mat
+    g.mat.set_editor_property("two_sided", True)
+    vc = g.node(unreal.MaterialExpressionVertexColor)
+    blade = g.lerp(g.colour("5E7A36"), g.colour("C6D872"), vc, alpha_out="R")
+    tint = g.op(unreal.MaterialExpressionAdd, g.op(unreal.MaterialExpressionMultiply, vc, None, "G", const_b=0.3),
+                None, const_b=0.85)
+    colour = g.op(unreal.MaterialExpressionMultiply, blade, tint)
+    g.out(colour, unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.op(unreal.MaterialExpressionMultiply, colour, None, const_b=0.12), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.const(0.8), unreal.MaterialProperty.MP_ROUGHNESS)
+    # Wind: a slow travelling wave, strongest at the tips (vertex colour R squared).
+    wp = g.node(unreal.MaterialExpressionWorldPosition)
+    px = g.node(unreal.MaterialExpressionComponentMask, r=True, g=False, b=False, a=False)
+    g.mel.connect_material_expressions(wp, "", px, "")
+    py = g.node(unreal.MaterialExpressionComponentMask, r=False, g=True, b=False, a=False)
+    g.mel.connect_material_expressions(wp, "", py, "")
+    phase = g.op(unreal.MaterialExpressionMultiply, g.op(unreal.MaterialExpressionAdd, px, py), None, const_b=0.0035)
+    time = g.op(unreal.MaterialExpressionMultiply, g.node(unreal.MaterialExpressionTime), None, const_b=0.28)
+    arg = g.op(unreal.MaterialExpressionAdd, phase, time)
+    sine = g.node(unreal.MaterialExpressionSine)
+    g.mel.connect_material_expressions(arg, "", sine, "")
+    cosine = g.node(unreal.MaterialExpressionCosine)
+    g.mel.connect_material_expressions(g.op(unreal.MaterialExpressionMultiply, arg, None, const_b=1.37), "", cosine, "")
+    tip = g.op(unreal.MaterialExpressionMultiply, vc, vc, "R", "R")
+    dx = g.op(unreal.MaterialExpressionMultiply, g.op(unreal.MaterialExpressionMultiply, sine, None, const_b=9.0), tip)
+    dy = g.op(unreal.MaterialExpressionMultiply, g.op(unreal.MaterialExpressionMultiply, cosine, None, const_b=5.0), tip)
+    xy = g.node(unreal.MaterialExpressionAppendVector)
+    g.mel.connect_material_expressions(dx, "", xy, "A")
+    g.mel.connect_material_expressions(dy, "", xy, "B")
+    xyz = g.node(unreal.MaterialExpressionAppendVector)
+    g.mel.connect_material_expressions(xy, "", xyz, "A")
+    g.mel.connect_material_expressions(g.const(0.0), "", xyz, "B")
+    g.out(xyz, unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
+    return g.done()
 
 
 class _Builder:
@@ -239,53 +365,72 @@ def ground_height(x, y):
             + (at(i, j + 1) * (1 - tx) + at(i + 1, j + 1) * tx) * ty)
 
 
-def _import_island():
-    """Imports the island .glb and returns its StaticMesh, set up for the game."""
-    path = os.path.join(unreal.Paths.project_dir(), ISLAND_DIR, ISLAND_GLB)
+def _import(filename, destination):
     task = unreal.AssetImportTask()
-    task.set_editor_property("filename", path)
-    task.set_editor_property("destination_path", ISLAND_ASSET_DIR)
+    task.set_editor_property("filename", filename)
+    task.set_editor_property("destination_path", destination)
     task.set_editor_property("automated", True)
     task.set_editor_property("replace_existing", True)
     task.set_editor_property("save", True)
     unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
 
-    mesh = None
-    textures = {}
-    for asset_path in unreal.EditorAssetLibrary.list_assets(ISLAND_ASSET_DIR, recursive=True):
-        asset = unreal.load_asset(asset_path)
-        if isinstance(asset, unreal.StaticMesh) and mesh is None:
-            mesh = asset
-        elif isinstance(asset, unreal.Texture2D):
-            textures[asset.get_name()] = asset
-    if mesh is None:
-        raise RuntimeError("no StaticMesh found after importing " + path)
 
-    # The importer's own glTF materials don't show the textures, so give every slot a
-    # plain material of ours that samples its painted texture directly.
-    slots = mesh.get_editor_property("static_materials")
-    for index, slot in enumerate(slots):
-        slot_name = str(slot.get_editor_property("material_slot_name"))
-        current = slot.get_editor_property("material_interface")
-        candidates = [slot_name, current.get_name() if current else ""]
-        key = None
-        for name in candidates:
-            name = name.replace("MI_", "").replace("M_Island_", "")
-            if name in textures:
-                key = name
-                break
-        if key is None:
-            unreal.log_warning(f"[Lyris] no texture found for island material slot {slot_name}")
-            continue
-        mesh.set_material(index, _make_textured_material(f"Island_{key}", textures[key]))
-        _log(f"island slot {slot_name} -> texture {key}")
+def _assets_of(folder, cls):
+    found = []
+    for asset_path in unreal.EditorAssetLibrary.list_assets(folder, recursive=True):
+        asset = unreal.load_asset(asset_path)
+        if isinstance(asset, cls):
+            found.append(asset)
+    return found
+
+
+def _import_island():
+    """Imports the painted textures, the island and the grass; returns (island mesh, grass mesh)."""
+    root = os.path.join(unreal.Paths.project_dir(), ISLAND_DIR)
+    tex_dir = os.path.join(root, "textures")
+    for png in sorted(os.listdir(tex_dir)):
+        if png.endswith(".png"):
+            _import(os.path.join(tex_dir, png), TEXTURE_ASSET_DIR)
+    tex = {t.get_name(): t for t in _assets_of(TEXTURE_ASSET_DIR, unreal.Texture2D)}
+    missing = [n for n in ("grass", "sand", "cliff", "bark", "leaf", "blossom") if n not in tex]
+    if missing:
+        raise RuntimeError(f"textures missing after import: {missing}")
+
+    _import(os.path.join(root, ISLAND_GLB), ISLAND_ASSET_DIR)
+    _import(os.path.join(root, GRASS_GLB), GRASS_ASSET_DIR)
+    island = next(iter(_assets_of(ISLAND_ASSET_DIR, unreal.StaticMesh)), None)
+    grass = next(iter(_assets_of(GRASS_ASSET_DIR, unreal.StaticMesh)), None)
+    if island is None:
+        raise RuntimeError("island mesh missing after import")
+
+    materials = {
+        "terrain": _material_terrain(tex),
+        "rock": _material_rock(tex),
+        "bark": _material_textured("IslandBark", tex["bark"]),
+        "leaf": _material_textured("IslandLeaf", tex["leaf"], lift=0.22),
+        "blossom": _material_textured("IslandBlossom", tex["blossom"], lift=0.22),
+        "grass": _material_grass(),
+    }
+    for mesh in filter(None, (island, grass)):
+        for index, slot in enumerate(mesh.get_editor_property("static_materials")):
+            names = [str(slot.get_editor_property("material_slot_name"))]
+            current = slot.get_editor_property("material_interface")
+            if current:
+                names.append(current.get_name())
+            key = next((k for k in materials for n in names if n.lower().endswith(k)), None)
+            if key is None:
+                unreal.log_warning(f"[Lyris] no material for slot {names[0]} on {mesh.get_name()}")
+                continue
+            mesh.set_material(index, materials[key])
+            _log(f"{mesh.get_name()} slot {names[0]} -> {key}")
+        unreal.EditorAssetLibrary.save_loaded_asset(mesh)
 
     # Walk on the real shape of the island: use the visible triangles as collision.
-    body = mesh.get_editor_property("body_setup")
+    body = island.get_editor_property("body_setup")
     if body:
         body.set_editor_property("collision_trace_flag", unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
-    unreal.EditorAssetLibrary.save_loaded_asset(mesh)
-    return mesh
+    unreal.EditorAssetLibrary.save_loaded_asset(island)
+    return island, grass
 
 
 def _island_transform(mesh):
@@ -376,6 +521,7 @@ def build(force=False):
         slc = skylight.get_component_by_class(unreal.SkyLightComponent)
         slc.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
         slc.set_editor_property("real_time_capture", True)
+        slc.set_editor_property("intensity", 1.4)  # soft fill so shadows stay readable
         fog = b.spawn(unreal.ExponentialHeightFog, "SeaMist", (0, 0, 0))
         fc = fog.get_component_by_class(unreal.ExponentialHeightFogComponent)
         fc.set_editor_property("fog_density", 0.01)
@@ -388,6 +534,11 @@ def build(force=False):
         settings.set_editor_property("auto_exposure_bias", 0.3)
         settings.set_editor_property("override_color_saturation", True)
         settings.set_editor_property("color_saturation", unreal.Vector4(1.05, 1.08, 1.0, 1.1))
+        # Shadows lean blue-violet, highlights stay warm (house style; Genshin tints shadows too).
+        settings.set_editor_property("override_color_gain_shadows", True)
+        settings.set_editor_property("color_gain_shadows", unreal.Vector4(0.92, 0.94, 1.08, 1.0))
+        settings.set_editor_property("override_color_gain_highlights", True)
+        settings.set_editor_property("color_gain_highlights", unreal.Vector4(1.04, 1.01, 0.96, 1.0))
         ppv.set_editor_property("settings", settings)
 
     def sea():
@@ -397,12 +548,23 @@ def build(force=False):
         b.shape("Shallows", "cylinder", (0, 0, 0.5), (62, 62, 0.01), "Shallows", folder="Sea", collide=False)
 
     def island():
-        mesh = _import_island()
-        scale, yaw, z_offset = _island_transform(mesh)
-        actor = b.eas.spawn_actor_from_object(mesh, unreal.Vector(0, 0, z_offset), unreal.Rotator(roll=0, pitch=0, yaw=yaw))
+        island_mesh, grass_mesh = _import_island()
+        scale, yaw, z_offset = _island_transform(island_mesh)
+        rot = unreal.Rotator(roll=0, pitch=0, yaw=yaw)
+        actor = b.eas.spawn_actor_from_object(island_mesh, unreal.Vector(0, 0, z_offset), rot)
         actor.set_actor_scale3d(unreal.Vector(*scale))
         actor.set_actor_label("TestIsland")
         actor.set_folder_path("Island")
+        if grass_mesh:
+            # Same file conventions as the island, so the same transform lines it up.
+            grass = b.eas.spawn_actor_from_object(grass_mesh, unreal.Vector(0, 0, z_offset), rot)
+            grass.set_actor_scale3d(unreal.Vector(*scale))
+            grass.set_actor_label("TestIslandGrass")
+            grass.set_folder_path("Island")
+            comp = grass.get_component_by_class(unreal.StaticMeshComponent)
+            comp.set_collision_profile_name("NoCollision")
+            comp.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
+            comp.set_editor_property("cast_shadow", False)
 
     def lighthouse():
         x, y = LIGHTHOUSE_POS
