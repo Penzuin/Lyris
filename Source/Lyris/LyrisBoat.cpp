@@ -14,6 +14,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
 #include "Materials/MaterialInterface.h"
+#include "Sailing/LyrisWindSettings.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace LyrisBoat
@@ -100,15 +101,19 @@ UStaticMeshComponent* ALyrisBoat::MakePart(FName Name, UStaticMesh* Mesh, UScene
 	return Part;
 }
 
-float ALyrisBoat::GetWindYaw() const
+void ALyrisBoat::RefreshWind()
 {
-	// The wind wanders a little over a few minutes, like a real sea breeze.
-	return BaseWindYaw + 25.f * FMath::Sin(Clock * 0.05f);
-}
-
-float ALyrisBoat::GetWindStrength() const
-{
-	return 0.85f + 0.15f * FMath::Sin(Clock * 0.13f);
+	// One wind for the whole world: every boat reads the same shared source.
+	if (const ULyrisWindSubsystem* WindSubsystem = ULyrisWindSubsystem::Get(this))
+	{
+		Wind = WindSubsystem->GetWindSample();
+	}
+	else
+	{
+		// No world subsystem (e.g. an editor preview): evaluate the same deterministic wind directly.
+		const UWorld* World = GetWorld();
+		Wind = ULyrisWindSubsystem::EvaluateWind(*ULyrisWindSettings::Get(), World ? World->GetTimeSeconds() : 0.0);
+	}
 }
 
 float ALyrisBoat::GetSailEfficiency(float RelativeWindDeg, FString& OutPointOfSail) const
@@ -252,8 +257,10 @@ void ALyrisBoat::UpdateSailing(float DeltaSeconds, APlayerController* PC)
 
 	// On-screen readout.
 	const float Knots = Speed * LyrisBoat::CmPerSecToKnots;
-	Hint(1, FString::Printf(TEXT("Sail %d%%   |   Speed %.1f knots   |   %s"),
-		FMath::RoundToInt(Sail * 100.f), Knots, *PointOfSail), FColor(227, 174, 69));
+	const TCHAR* WindMood = Wind.CalmAlpha > 0.5f ? TEXT(" (calm)") : (Wind.GustAlpha > 0.5f ? TEXT(" (gusting)") : TEXT(""));
+	Hint(1, FString::Printf(TEXT("Sail %d%%   |   Speed %.1f knots   |   %s   |   Wind %d%%%s"),
+		FMath::RoundToInt(Sail * 100.f), Knots, *PointOfSail, FMath::RoundToInt(Wind.Strength * 100.f), WindMood),
+		FColor(227, 174, 69));
 	Hint(2, TEXT("W/S raise or lower sail   A/D steer   Mouse look   E step ashore at the dock"));
 	if (FVector::Dist2D(Loc, DockPoint) < DockRadius)
 	{
@@ -285,6 +292,7 @@ void ALyrisBoat::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	Clock += DeltaSeconds;
+	RefreshWind();
 
 	APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
 	if (PC)
