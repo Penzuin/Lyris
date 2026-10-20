@@ -129,13 +129,14 @@ the Pale Stag, the Watcher.
 
 ## 10. First prototype (what gets built first)
 
-1. Player combat: 4-hit combo, charged attack, dash with i-frames and perfect-dodge Lull,
-   stamina, soft target, hit-stop and knockback.
-2. One attunement, **Lantern**: Art = Flare (burst that applies Lantern), Surge = Lighthouse
-   Beam (big area burst).
-3. One reaction: **Dispel** (Misted + Lantern).
-4. One enemy: the **mist crawler** (health, poise, glowing tell, lunge, stagger, Misted).
-5. A small training ground on the island where crawlers keep coming out of the mist.
-6. Defeat sends you back to the dock lamp.
+Owner's call (2026-10-20): **punches and kicks only for now.** No Arts, Surges or
+attunements in the first build; they stay in this spec for later.
+
+1. Player combat, hand-to-hand: LMB combo of jab, cross, hook, front kick (the kick
+   staggers); hold LMB for a spinning roundhouse kick; LMB in the air for a stomp kick.
+2. Dash with i-frames and the perfect-dodge Lull; stamina, soft target, hit-stop and knockback.
+3. One enemy: the **mist crawler** (health, poise, glowing tell, lunge, stagger).
+4. A small training ground on the island where crawlers keep coming out of the mist.
+5. Defeat sends you back to the dock lamp.
 
 Placeholder art: Unreal mannequin animations and basic shapes until real assets exist.

@@ -52,10 +52,10 @@ Ideas or requests an agent ran into that are not scheduled yet.
 | ID | Task | Lane | Raised by | Notes |
 |---|---|---|---|---|
 | C1 | Combat design spec: solo Genshin-style action, attunements, world reactions, enemies, defeat (`design/combat.md`) | Design | user request (combat), Make a Game chat | PR open on `lane/design-C1-combat-spec`; direction approved by the user, logged in DECISIONS |
-| C2 | Combat prototype: combo, charged and plunge attacks, dash with perfect-dodge Lull, stamina, Flare Art, Lighthouse Beam Surge, Dispel reaction, mist crawler, training ground | Combat *(new lane needed: `Source/Lyris/Combat/`, `Content/Lyris/Combat/`)* | user request (combat) | Written on `lane/combat-C2-prototype`, not compiled. Needs the lead to open a Combat lane. |
+| C2 | Combat prototype, hand-to-hand only: punch/kick combo, roundhouse kick (hold), stomp kick (air), dash with perfect-dodge Lull, stamina, mist crawler, training ground | Combat *(new lane needed: `Source/Lyris/Combat/`, `Content/Lyris/Combat/`)* | user request (combat) | Written on `lane/combat-C2-prototype`, not compiled. Needs the lead to open a Combat lane. |
 | C3 | Place an `ALyrisTrainingGround` on the island (meadow west of the path, e.g. around X -300, Y -350), `RespawnLocation` = the dock; bump `BUILD_VERSION` | Environment | C2 | Hand-off; keep it more than 25 m from the boat so E still boards |
-| C4 | Enhanced Input actions for combat (attack, dash, Art, Surge, lock-on) plus gamepad; replace C2's direct key reads | Player | C2 | |
-| C5 | Combat HUD: health, stamina, Art cooldown, Surge charge, enemy health and poise | UI | C2 | C2 shows a temporary on-screen readout |
+| C4 | Enhanced Input actions for combat (attack, dash, lock-on; Art and Surge later) plus gamepad; replace C2's direct key reads | Player | C2 | |
+| C5 | Combat HUD: health, stamina, enemy health and poise | UI | C2 | C2 shows a temporary on-screen readout |
 | C6 | Real attack, dodge and hit animations, and an anim slot so montages play | Combat | C2 | C2 plays mannequin attacks on "DefaultSlot" if the anim blueprint has one |
 | C7 | Defeat returns you to the last lamp you lit | Combat | C2, T3 | C2 returns you to the dock |
 
