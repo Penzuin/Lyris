@@ -769,7 +769,8 @@ def render_preview(out_path, meshes, textures, elev=24, azim=-122, zoom=1.0, cen
                     lo, hi = FOLIAGE_PREVIEW[species]
                     up = float(np.clip(n[2] * 0.5 + 0.5, 0, 1))
                     depth = float(np.mean([part.uv1[k][0] for k in t]))
-                    base = (lo * (1 - up) + hi * up) * (0.55 + 0.45 * depth)
+                    clump = float(np.mean([part.uv2[k][1] for k in t]))
+                    base = (lo * (1 - up) + hi * up) * (0.55 + 0.45 * depth) * (0.62 + 0.5 * clump)
                     lit = 1.0
                 elif name == "berry":
                     base, lit = np.array([0.72, 0.30, 0.42]), 1.0
@@ -816,6 +817,7 @@ def main():
 
     textures = pt.paint_all()
     textures.update(pt.paint_extra())
+    textures.update(pt.canopy_tiles())  # painted leaf clumps for the canopy shells
     textures["flowers"] = pt.flower_atlas()
     textures["leaf_atlas"] = pt.leaf_atlas()
     textures["plants"] = pt.plant_atlas()
