@@ -33,3 +33,6 @@ desktop.ini
 # Python caches
 __pycache__/
 *.pyc
+
+# Claude agent worktrees
+.claude/worktrees/

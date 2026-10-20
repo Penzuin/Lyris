@@ -29,6 +29,6 @@ bumps `BUILD_VERSION`. World writes that request in its PR and adds a task for E
 
 ## Leftovers
 
-`Source/Lyris/Variant_*`, `Content/Variant_*`, `Content/ThirdPerson`, `Content/LevelPrototyping`
+`Content/ThirdPerson`, `Content/LevelPrototyping`
 and `Content/Characters/Mannequins` came with the Unreal template. Lead owns them until
 they are kept or removed.
