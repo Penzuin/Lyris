@@ -12,11 +12,13 @@ bumping BUILD_VERSION is how a new layout reaches the project.
 Manual rebuild (Output Log, Python):  import lyris_build_harbor as h; h.build(force=True)
 """
 
+import json
 import math
+import os
 
 import unreal
 
-BUILD_VERSION = 2
+BUILD_VERSION = 3
 MAP_PATH = "/Game/Lyris/Maps/Harbor"
 MAT_DIR = "/Game/Lyris/Materials/Prototype"
 MARKER_PREFIX = "LyrisBuild_v"
@@ -39,21 +41,16 @@ PALETTE = {
 }
 MOONGLASS = "7AC0E6"  # cold lamp light, Quiet Reach palette
 
-# Island shape: ellipsoid domes (centre x, y, z, horizontal radius, half-height, material).
-# Only the parts above sea level (z = 0) matter for walking.
-DOMES = [
-    ("Island_Rock",   0,    0,   -260, 2300, 220, "Stone"),
-    ("Island_Beach",  0,    0,   -100, 2000, 200, "Sand"),
-    ("Island_Meadow", -200, 0,   -60,  1400, 200, "Grass"),
-    ("Island_Hill",   -500, 400, 0,    700,  220, "Grass"),
-]
-TERRACE_STEP = 20.0  # height between collider steps; the character steps up to 45
+# The island is the sculpted model from Art/TestIsland (make_island.py).
+ISLAND_DIR = "Art/TestIsland"
+ISLAND_GLB = "test_island.glb"
+ISLAND_META = "island_meta.json"
+ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland"
 
 DOCK_X0, DOCK_X1, DOCK_Y, DOCK_TOP = 1150.0, 2850.0, 150.0, 72.0
 BOAT_START = (2450.0, -230.0)
 LAMP_POS = (2760.0, 290.0)
-LIGHTHOUSE_POS = (-700.0, -600.0)
-TREES = [(300, -700, 2.2), (-200, -1000, 1.8), (500, 650, 2.0), (-1100, -250, 2.5), (-250, 900, 1.9)]
+LIGHTHOUSE_POS = (-760.0, -660.0)
 
 
 def _log(msg):
@@ -193,14 +190,94 @@ class _Builder:
         return light
 
 
+_META = None
+
+
+def _island_meta():
+    global _META
+    if _META is None:
+        path = os.path.join(unreal.Paths.project_dir(), ISLAND_DIR, ISLAND_META)
+        with open(path) as f:
+            _META = json.load(f)
+    return _META
+
+
 def ground_height(x, y):
-    """Top of the island at (x, y), or a value below 0 over open water."""
-    best = -1000.0
-    for _, cx, cy, cz, radius, half_h, _ in DOMES:
-        d = math.hypot(x - cx, y - cy)
-        if d < radius:
-            best = max(best, cz + half_h * math.sqrt(1.0 - (d / radius) ** 2))
-    return best
+    """Top of the island at (x, y) in cm (bilinear on the grid make_island.py saved)."""
+    meta = _island_meta()
+    o, step, n = meta["grid_origin"], meta["grid_step"], meta["grid_size"]
+    hs = meta["heights"]
+    fx, fy = (x - o) / step, (y - o) / step
+    i, j = int(math.floor(fx)), int(math.floor(fy))
+    if not (0 <= i < n - 1 and 0 <= j < n - 1):
+        return -1000.0
+    tx, ty = fx - i, fy - j
+
+    def at(a, b):
+        return hs[a * n + b]
+
+    return ((at(i, j) * (1 - tx) + at(i + 1, j) * tx) * (1 - ty)
+            + (at(i, j + 1) * (1 - tx) + at(i + 1, j + 1) * tx) * ty)
+
+
+def _import_island():
+    """Imports the island .glb and returns its StaticMesh, set up for the game."""
+    path = os.path.join(unreal.Paths.project_dir(), ISLAND_DIR, ISLAND_GLB)
+    task = unreal.AssetImportTask()
+    task.set_editor_property("filename", path)
+    task.set_editor_property("destination_path", ISLAND_ASSET_DIR)
+    task.set_editor_property("automated", True)
+    task.set_editor_property("replace_existing", True)
+    task.set_editor_property("save", True)
+    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+
+    mesh = None
+    for asset_path in unreal.EditorAssetLibrary.list_assets(ISLAND_ASSET_DIR, recursive=True):
+        asset = unreal.load_asset(asset_path)
+        if isinstance(asset, unreal.StaticMesh) and mesh is None:
+            mesh = asset
+        elif isinstance(asset, unreal.Texture2D):
+            # Crisp Blockbench pixels.
+            asset.set_editor_property("filter", unreal.TextureFilter.TF_NEAREST)
+            unreal.EditorAssetLibrary.save_loaded_asset(asset)
+    if mesh is None:
+        raise RuntimeError("no StaticMesh found after importing " + path)
+
+    # Walk on the real shape of the island: use the visible triangles as collision.
+    body = mesh.get_editor_property("body_setup")
+    if body:
+        body.set_editor_property("collision_trace_flag", unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
+    unreal.EditorAssetLibrary.save_loaded_asset(mesh)
+    return mesh
+
+
+def _island_transform(mesh):
+    """Works out how the importer oriented the model by comparing its bounds with the
+    bounds make_island.py recorded, and returns (scale, yaw, z_offset) to undo it."""
+    meta = _island_meta()
+    eo, ee = meta["bounds_origin"], meta["bounds_extent"]
+    bounds = mesh.get_bounds()
+    io_, ie = bounds.origin, bounds.box_extent
+    k = ee[2] / ie.z if ie.z > 1 else 1.0
+    best = None
+    for swap in (False, True):
+        for sx in (1, -1):
+            for sy in (1, -1):
+                if swap:
+                    px, py, ex, ey = sx * io_.y * k, sy * io_.x * k, ie.y * k, ie.x * k
+                    scale, yaw = (sy * k, -sx * k, k), 90.0
+                else:
+                    px, py, ex, ey = sx * io_.x * k, sy * io_.y * k, ie.x * k, ie.y * k
+                    scale, yaw = (sx * k, sy * k, k), 0.0
+                err = abs(px - eo[0]) + abs(py - eo[1]) + abs(ex - ee[0]) + abs(ey - ee[1])
+                if best is None or err < best[0]:
+                    best = (err, scale, yaw)
+    err, scale, yaw = best
+    z_offset = eo[2] - io_.z * k
+    _log(f"island orientation: scale {scale}, yaw {yaw}, z offset {z_offset:.0f}, fit error {err:.0f} cm")
+    if err > 200:
+        unreal.log_warning("[Lyris] island orientation is uncertain; check that the dock meets the shore")
+    return scale, yaw, z_offset
 
 
 def _step(name, fn):
@@ -240,6 +317,15 @@ def build(force=False):
         unreal.log_error("[Lyris] could not create " + MAP_PATH)
         return
 
+    # Start the dock at the island's real shoreline, and keep the boat and lamp with it.
+    global DOCK_X0, DOCK_X1, BOAT_START, LAMP_POS
+    global LIGHTHOUSE_POS
+    LIGHTHOUSE_POS = tuple(_island_meta().get("lighthouse", LIGHTHOUSE_POS))
+    DOCK_X0 = float(_island_meta().get("dock_shore_x", 1700.0)) - 250.0
+    DOCK_X1 = DOCK_X0 + 1700.0
+    BOAT_START = (DOCK_X1 - 400.0, -230.0)
+    LAMP_POS = (DOCK_X1 - 90.0, 290.0)
+
     b = _Builder()
 
     def sky():
@@ -271,36 +357,19 @@ def build(force=False):
         # One big plane: 100 units x 4000 = 4 km across; the mist hides the edge.
         b.shape("Sea", "plane", (0, 0, 0), (4000, 4000, 1), "Sea", folder="Sea", collide=False)
         # Pale shallows ring around the island, a hair above the sea to avoid flicker.
-        b.shape("Shallows", "cylinder", (0, 0, 0.5), (50, 50, 0.01), "Shallows", folder="Sea", collide=False)
+        b.shape("Shallows", "cylinder", (0, 0, 0.5), (62, 62, 0.01), "Shallows", folder="Sea", collide=False)
 
     def island():
-        for label, cx, cy, cz, radius, half_h, material in DOMES:
-            b.shape(label, "sphere", (cx, cy, cz), (radius / 50.0, radius / 50.0, half_h / 50.0),
-                    material, folder="Island", collide=False)
-        # Hidden stepped colliders that follow the domes, so the island is walkable
-        # and the boat runs aground on the shore.
-        for idx, (_, cx, cy, cz, radius, half_h, _) in enumerate(DOMES):
-            top = cz + half_h
-            z = max(0.0, cz)
-            while z < top - 1.0:
-                frac = (z - cz) / half_h
-                r = radius * math.sqrt(max(0.0, 1.0 - frac * frac))
-                bottom = -400.0
-                height = z - bottom + TERRACE_STEP
-                b.shape(f"IslandCollider_{idx}_{int(z)}", "cylinder",
-                        (cx, cy, bottom + height / 2.0), (r / 50.0, r / 50.0, height / 100.0),
-                        folder="Island/Colliders", visible=False)
-                z += TERRACE_STEP
-        for i, (x, y, s) in enumerate(TREES):
-            g = ground_height(x, y)
-            b.shape(f"Tree_Trunk_{i}", "cylinder", (x, y, g + 60 * s), (0.25, 0.25, 1.2 * s), "DarkWood",
-                    folder="Island/Trees")
-            b.shape(f"Tree_Crown_{i}", "sphere", (x, y, g + 150 * s), (1.3 * s, 1.3 * s, 1.1 * s), "Leaf",
-                    folder="Island/Trees", collide=False)
+        mesh = _import_island()
+        scale, yaw, z_offset = _island_transform(mesh)
+        actor = b.eas.spawn_actor_from_object(mesh, unreal.Vector(0, 0, z_offset), unreal.Rotator(roll=0, pitch=0, yaw=yaw))
+        actor.set_actor_scale3d(unreal.Vector(*scale))
+        actor.set_actor_label("TestIsland")
+        actor.set_folder_path("Island")
 
     def lighthouse():
         x, y = LIGHTHOUSE_POS
-        g = ground_height(x, y) - 20
+        g = max(ground_height(x, y), 0.0) - 20
         b.shape("Lighthouse_Base", "cylinder", (x, y, g + 60), (3.4, 3.4, 1.2), "Stone", folder="Lighthouse")
         b.shape("Lighthouse_Tower", "cylinder", (x, y, g + 720), (2.6, 2.6, 12), "Salt", folder="Lighthouse")
         for i, z in enumerate((g + 450, g + 900)):

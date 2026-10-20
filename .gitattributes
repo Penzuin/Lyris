@@ -26,3 +26,6 @@
 # Text files keep normal line endings
 *.ini text eol=crlf
 *.uproject text eol=crlf
+
+# Generated source art is small; keep it in regular git (not LFS)
+Art/** -filter -diff -merge -text
