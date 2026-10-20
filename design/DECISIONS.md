@@ -25,3 +25,5 @@ Settled choices. Agents follow these; only the user changes them. Newest at the 
 | 2026-10-20 | A character's People can be changed after creation; where (mirror, academy, elsewhere) is still open. |
 | 2026-10-20 | Faith is not chosen in the character creator. Players join a faith when they find it through a quest. The creator has six steps: People, Appearance, Path, Backstory, Lantern, Name. |
 | 2026-10-20 | Backstories stay as listed in the spec for now; the user will expand them later. Preset names in the spec are approved. |
+| 2026-10-20 | **World map: the real Lyris map at full size.** The game world is the Lyris Minecraft world at 1 block = 1 m: 25 x 25 km, about 121 km² of land (atlas in `lyris-companion/atlas`). Coastlines, rivers, lakes and landmarks stay where the map has them; Moonharbor sits on its round northern bay. New island chains are added in the straits and open sea so there is plenty to sail to (each needs the user's OK). Supersedes the Inner Sea placement of Moonharbor on the south coast. |
+| 2026-10-20 | The Harbor test map is retired. The Lyris world map replaces it as the only map; the boat, dock and lamp move into Moonharbor. |
