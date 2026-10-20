@@ -18,7 +18,7 @@ import os
 
 import unreal
 
-BUILD_VERSION = 6
+BUILD_VERSION = 7
 MAP_PATH = "/Game/Lyris/Maps/Harbor"
 MAT_DIR = "/Game/Lyris/Materials/Prototype"
 MARKER_PREFIX = "LyrisBuild_v"
@@ -45,10 +45,12 @@ MOONGLASS = "7AC0E6"  # cold lamp light, Quiet Reach palette
 ISLAND_DIR = "Art/TestIsland"
 ISLAND_GLB = "test_island.glb"
 GRASS_GLB = "test_island_grass.glb"
-GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass_v6"
-TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island_v6"
+FOLIAGE_GLB = "test_island_foliage.glb"
+FOLIAGE_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandFoliage_v7"
+GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass_v7"
+TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island_v7"
 ISLAND_META = "island_meta.json"
-ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland_v6"
+ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland_v7"
 
 DOCK_X0, DOCK_X1, DOCK_Y, DOCK_TOP = 1150.0, 2850.0, 150.0, 72.0
 BOAT_START = (2450.0, -230.0)
@@ -245,6 +247,18 @@ class _Graph:
     def up(self):
         return self.mask(self.normal(), "B")
 
+    def uv(self, channel=0):
+        return self.node(unreal.MaterialExpressionTextureCoordinate, coordinate_index=channel)
+
+    def fresnel(self, exponent=3.0):
+        return self.node(unreal.MaterialExpressionFresnel, exponent=exponent, base_reflect_fraction=0.0)
+
+    def foliage_gradient(self):
+        """0 underneath .. 1 sunlit top: the canopy-wide normal blended with height up the canopy (UV1.y)."""
+        up = self.saturate(self.add(self.mul(self.up(), k=0.5), k=0.5))
+        height = self.mask(self.uv(1), "G")
+        return self.saturate(self.add(self.mul(up, k=0.6), self.mul(height, k=0.55)))
+
     def wind(self, weight, strength=1.0):
         """A slow travelling wave; `weight` scales it (0 at the root, 1 at the tip)."""
         wp = self.wp()
@@ -310,11 +324,11 @@ def _material_rock(tex):
     return g.done()
 
 
-def _material_bark(tex, name="IslandBark", tint=None):
+def _material_bark(tex, name="IslandBark", tint=None, texture="bark"):
     g = _Graph(name)
     if g.exists:
         return g.mat
-    bark = g.triplanar(tex["bark"], 1.0 / 140.0)
+    bark = g.triplanar(tex[texture], 1.0 / 140.0)
     if tint:
         bark = g.mul(bark, g.colour(tint))
     g.out(bark, unreal.MaterialProperty.MP_BASE_COLOR)
@@ -322,18 +336,87 @@ def _material_bark(tex, name="IslandBark", tint=None):
     return g.done()
 
 
-def _material_canopy(name, texture, dark_hex, sun_hex):
+def _material_shell(species, texture, shadow_hex, sun_hex):
+    """Opaque canopy shells: soft top-lit gradient, darker toward the inside (UV1.x depth),
+    gentle per-shell variation (UV2.x), a fake rim light and a little self-light."""
+    g = _Graph(f"Shell_{species}")
+    if g.exists:
+        return g.mat
+    grad = g.foliage_gradient()
+    colour = g.lerp(g.colour(shadow_hex), g.colour(sun_hex), grad)
+    detail = g.lerp(g.const(1.0), g.tex(texture, g.world_uv(1.0 / 150.0)), g.const(0.4), "", "RGB")
+    depth = g.lerp(g.const(0.5), g.const(1.0), g.mask(g.uv(1), "R"))
+    vary = g.add(g.mul(g.mask(g.uv(2), "R"), k=0.16), k=0.92)
+    base = g.mul(g.mul(g.mul(colour, detail), depth), vary)
+    g.out(base, unreal.MaterialProperty.MP_BASE_COLOR)
+    rim = g.mul(g.mul(g.fresnel(3.0), g.colour(sun_hex)), k=0.25)
+    g.out(g.add(g.mul(base, k=0.18), rim), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.const(0.85), unreal.MaterialProperty.MP_ROUGHNESS)
+    g.out(g.wind(g.mul(g.mask(g.uv(1), "G"), k=0.6), 0.45), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
+    return g.done()
+
+
+def _material_cards(species, atlas, sun_hex):
+    """Leaf-clump cards: cut out of the atlas, two-sided foliage shading so light glows
+    through, cool in shadow and warm on top, each card slightly different."""
+    g = _Graph(f"Cards_{species}")
+    if g.exists:
+        return g.mat
+    g.mat.set_editor_property("two_sided", True)
+    g.mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+    g.mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_TWO_SIDED_FOLIAGE)
+    sample = g.tex(atlas, g.uv(0))
+    tint = g.lerp(g.colour("8C9EC4"), g.colour("FFF6E6"), g.foliage_gradient())  # cool shade -> warm sun
+    vary = g.add(g.mul(g.mask(g.uv(2), "R"), k=0.2), k=0.9)
+    base = g.mul(g.mul(sample, tint, "RGB"), vary)
+    g.out(base, unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(sample, unreal.MaterialProperty.MP_OPACITY_MASK, "A")
+    g.out(g.mul(g.colour(sun_hex), k=0.55), unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
+    g.out(g.mul(base, k=0.15), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.const(0.8), unreal.MaterialProperty.MP_ROUGHNESS)
+    g.out(g.wind(g.mul(g.mask(g.uv(1), "G"), k=0.6), 0.45), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
+    return g.done()
+
+
+def _material_plain(name, hex_str, glow=0.1):
     g = _Graph(name)
     if g.exists:
         return g.mat
-    # Normals point out from each canopy's centre, so this paints one soft gradient over the mass.
-    up = g.saturate(g.add(g.mul(g.up(), k=0.5), k=0.5))
-    colour = g.lerp(g.colour(dark_hex), g.colour(sun_hex), up)
-    detail = g.lerp(g.const(1.0), g.tex(texture, g.world_uv(1.0 / 160.0)), g.const(0.35), "", "RGB")
-    base = g.mul(colour, detail)
-    g.out(base, unreal.MaterialProperty.MP_BASE_COLOR)
-    g.out(g.mul(base, k=0.22), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-    g.out(g.const(0.85), unreal.MaterialProperty.MP_ROUGHNESS)
+    colour = g.colour(hex_str)
+    g.out(colour, unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.mul(colour, k=glow), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.const(0.6), unreal.MaterialProperty.MP_ROUGHNESS)
+    return g.done()
+
+
+def _material_mushroom():
+    g = _Graph("IslandMushroom")
+    if g.exists:
+        return g.mat
+    cap = g.saturate(g.add(g.mul(g.up(), k=2.0), k=-0.4))  # warm cap on top, cream gills and stem below
+    colour = g.lerp(g.colour("F4E8D2"), g.colour("D2714E"), cap)
+    g.out(colour, unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.mul(colour, k=0.12), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.const(0.7), unreal.MaterialProperty.MP_ROUGHNESS)
+    return g.done()
+
+
+def _material_cutout(name, atlas, sway=0.6):
+    """Upright plant and flower cards: cut out of an atlas, two-sided, swaying from the base."""
+    g = _Graph(name)
+    if g.exists:
+        return g.mat
+    g.mat.set_editor_property("two_sided", True)
+    g.mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+    uv = g.uv(0)
+    sample = g.tex(atlas, uv)
+    g.out(sample, unreal.MaterialProperty.MP_BASE_COLOR, "RGB")
+    g.out(sample, unreal.MaterialProperty.MP_OPACITY_MASK, "A")
+    g.out(g.mul(sample, None, "RGB", k=0.15), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    # Atlas cells are half the texture tall: 1 - frac(v * 2) is 0 at a plant's base, 1 at its top.
+    in_cell = g.single(unreal.MaterialExpressionFrac, g.mul(g.mask(uv, "G"), k=2.0))
+    top = g.add(g.mul(in_cell, k=-1.0), k=1.0)
+    g.out(g.wind(g.mul(top, top), sway), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
     return g.done()
 
 
@@ -351,20 +434,6 @@ def _material_grass(tex):
     g.out(g.mul(colour, k=0.1), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     g.out(g.const(0.8), unreal.MaterialProperty.MP_ROUGHNESS)
     g.out(g.wind(g.mul(v, v)), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
-    return g.done()
-
-
-def _material_flowers(tex):
-    g = _Graph("IslandFlowers")
-    if g.exists:
-        return g.mat
-    g.mat.set_editor_property("two_sided", True)
-    g.mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
-    sample = g.tex(tex["flowers"], g.node(unreal.MaterialExpressionTextureCoordinate))
-    g.out(sample, unreal.MaterialProperty.MP_BASE_COLOR, "RGB")
-    g.out(sample, unreal.MaterialProperty.MP_OPACITY_MASK, "A")
-    g.out(g.mul(sample, None, "RGB", k=0.15), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-    g.out(g.wind(g.const(0.45), 0.6), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
     return g.done()
 
 
@@ -485,7 +554,8 @@ def _import_island():
         if png.endswith(".png"):
             _import(os.path.join(tex_dir, png), TEXTURE_ASSET_DIR)
     tex = {t.get_name(): t for t in _assets_of(TEXTURE_ASSET_DIR, unreal.Texture2D)}
-    needed = ("grass", "sand", "cliff", "path", "bark", "leaf", "blossom", "flowers", "splat")
+    needed = ("grass", "sand", "cliff", "path", "bark", "birch_bark", "needles", "leaf", "blossom", "flowers",
+              "leaf_atlas", "plants", "splat")
     missing = [n for n in needed if n not in tex]
     if missing:
         raise RuntimeError(f"textures missing after import: {missing}")
@@ -499,28 +569,45 @@ def _import_island():
 
     _import(os.path.join(root, ISLAND_GLB), ISLAND_ASSET_DIR)
     _import(os.path.join(root, GRASS_GLB), GRASS_ASSET_DIR)
+    _import(os.path.join(root, FOLIAGE_GLB), FOLIAGE_ASSET_DIR)
     island = next(iter(_assets_of(ISLAND_ASSET_DIR, unreal.StaticMesh)), None)
     meadow = next(iter(_assets_of(GRASS_ASSET_DIR, unreal.StaticMesh)), None)
+    foliage = next(iter(_assets_of(FOLIAGE_ASSET_DIR, unreal.StaticMesh)), None)
     if island is None:
         raise RuntimeError("island mesh missing after import")
 
+    atlas = tex["leaf_atlas"]
     materials = {
         "terrain": _material_terrain(tex),
         "rock": _material_rock(tex),
         "bark": _material_bark(tex),
+        "birch_bark": _material_bark(tex, "IslandBirchBark", texture="birch_bark"),
+        "pine_bark": _material_bark(tex, "IslandPineBark", tint="B89A92"),
         "wood": _material_bark(tex, "IslandBenchWood", tint="FFE6CC"),
-        "leaf": _material_canopy("IslandLeaf", tex["leaf"], "56785A", "D6E592"),
-        "blossom": _material_canopy("IslandBlossom", tex["blossom"], "C07888", "FFE6DC"),
+        "shell_oak": _material_shell("Oak", tex["leaf"], "4E7458", "D8E794"),
+        "shell_bush": _material_shell("Bush", tex["leaf"], "527A58", "D2E48E"),
+        "shell_birch": _material_shell("Birch", tex["leaf"], "6E8C5A", "EEF2A8"),
+        "shell_pine": _material_shell("Pine", tex["needles"], "34574E", "8FB284"),
+        "shell_blossom": _material_shell("Blossom", tex["blossom"], "B87888", "FFE8DE"),
+        "cards_oak": _material_cards("Oak", atlas, "FFF2C8"),
+        "cards_bush": _material_cards("Bush", atlas, "FFF2C8"),
+        "cards_birch": _material_cards("Birch", atlas, "FFF8D0"),
+        "cards_pine": _material_cards("Pine", atlas, "DDF0C8"),
+        "cards_blossom": _material_cards("Blossom", atlas, "FFE0D8"),
+        "berry": _material_plain("IslandBerry", "B04A6E", 0.2),
+        "mushroom": _material_mushroom(),
         "grass": _material_grass(tex),
-        "flower": _material_flowers(tex),
+        "flower": _material_cutout("IslandFlowers", tex["flowers"], 0.6),
+        "plant": _material_cutout("IslandPlants", tex["plants"], 0.8),
     }
-    for mesh in filter(None, (island, meadow)):
+    for mesh in filter(None, (island, meadow, foliage)):
         for index, slot in enumerate(mesh.get_editor_property("static_materials")):
             names = [str(slot.get_editor_property("material_slot_name"))]
             current = slot.get_editor_property("material_interface")
             if current:
                 names.append(current.get_name())
-            key = next((k for k in materials for n in names if n.lower().endswith(k)), None)
+            matches = [k for k in materials for n in names if n.lower().endswith(k)]
+            key = max(matches, key=len) if matches else None  # "birch_bark" beats "bark"
             if key is None:
                 unreal.log_warning(f"[Lyris] no material for slot {names[0]} on {mesh.get_name()}")
                 continue
@@ -533,7 +620,7 @@ def _import_island():
     if body:
         body.set_editor_property("collision_trace_flag", unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
     unreal.EditorAssetLibrary.save_loaded_asset(island)
-    return island, meadow
+    return island, meadow, foliage
 
 
 def _island_transform(mesh):
@@ -651,23 +738,25 @@ def build(force=False):
         b.shape("Shallows", "cylinder", (0, 0, 0.5), (62, 62, 0.01), "Shallows", folder="Sea", collide=False)
 
     def island():
-        island_mesh, grass_mesh = _import_island()
+        island_mesh, meadow_mesh, foliage_mesh = _import_island()
         scale, yaw, z_offset = _island_transform(island_mesh)
         rot = unreal.Rotator(roll=0, pitch=0, yaw=yaw)
         actor = b.eas.spawn_actor_from_object(island_mesh, unreal.Vector(0, 0, z_offset), rot)
         actor.set_actor_scale3d(unreal.Vector(*scale))
         actor.set_actor_label("TestIsland")
         actor.set_folder_path("Island")
-        if grass_mesh:
-            # Same file conventions as the island, so the same transform lines it up.
-            grass = b.eas.spawn_actor_from_object(grass_mesh, unreal.Vector(0, 0, z_offset), rot)
-            grass.set_actor_scale3d(unreal.Vector(*scale))
-            grass.set_actor_label("TestIslandGrass")
-            grass.set_folder_path("Island")
-            comp = grass.get_component_by_class(unreal.StaticMeshComponent)
+        # All three files share the same conventions, so the island's transform lines them up.
+        for mesh, label, shadows in ((meadow_mesh, "TestIslandMeadow", False), (foliage_mesh, "TestIslandFoliage", True)):
+            if not mesh:
+                continue
+            extra = b.eas.spawn_actor_from_object(mesh, unreal.Vector(0, 0, z_offset), rot)
+            extra.set_actor_scale3d(unreal.Vector(*scale))
+            extra.set_actor_label(label)
+            extra.set_folder_path("Island")
+            comp = extra.get_component_by_class(unreal.StaticMeshComponent)
             comp.set_collision_profile_name("NoCollision")
             comp.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
-            comp.set_editor_property("cast_shadow", False)
+            comp.set_editor_property("cast_shadow", shadows)
 
     def lighthouse():
         x, y = LIGHTHOUSE_POS

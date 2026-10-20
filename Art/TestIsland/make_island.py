@@ -155,6 +155,7 @@ def png_bytes(arr):
 
 
 
+import foliage as fo  # noqa: E402  (Genshin-style trees, bushes and plants)
 import paint_textures as pt  # noqa: E402  (soft seamless textures, flower atlas)
 
 # A worn footpath from the dock landing up the cove to the blossom tree and its bench.
@@ -227,12 +228,15 @@ def make_splat(coords, h, noise):
 class Part:
     def __init__(self):
         self.pos, self.nrm, self.uv, self.col, self.idx = [], [], [], [], []
+        self.uv1, self.uv2 = [], []
 
-    def vert(self, p, n, uv, col=(1.0, 1.0, 1.0, 1.0)):
+    def vert(self, p, n, uv, col=(1.0, 1.0, 1.0, 1.0), uv1=(0.0, 0.0), uv2=(0.0, 0.0)):
         self.pos.append(tuple(float(v) for v in p))
         self.nrm.append(tuple(float(v) for v in n))
         self.uv.append(tuple(float(v) for v in uv))
         self.col.append(tuple(float(v) for v in col))
+        self.uv1.append(tuple(float(v) for v in uv1))
+        self.uv2.append(tuple(float(v) for v in uv2))
         return len(self.pos) - 1
 
     def tri(self, a, b, c):
@@ -413,125 +417,24 @@ def build_arch(mesh, centre, span, thickness, depth, base_z, yaw_deg):
 
 
 
-def place_cliff_rocks(mesh, coords, h, nrm, rng):
-    """Clusters of faceted rocks along the steep cliffs and around the sea stacks."""
-    placed = []
-    n = len(coords)
-    cells = [(i, j) for i in range(1, n - 1) for j in range(1, n - 1)
-             if nrm[i, j, 2] < 0.62 and h[i, j] > -80]
-    rng.shuffle(cells)
-    for i, j in cells:
-        x, y, z = coords[i], coords[j], h[i, j]
-        if x > 1100 and abs(y - 150) < 750:  # keep the cove, beach and dock clear
-            continue
-        if any((x - px) ** 2 + (y - py) ** 2 < 190.0 ** 2 for px, py in placed):
-            continue
-        placed.append((x, y))
-        out = np.array([nrm[i, j, 0], nrm[i, j, 1]])
-        out = out / (np.linalg.norm(out) or 1.0)
-        r = rng.uniform(150, 300)
-        tall = rng.uniform(1.0, 1.7)
-        cx, cy = x + out[0] * r * 0.25, y + out[1] * r * 0.25
-        rock_chunk(mesh, (cx, cy, z - r * 0.15), (r, r * rng.uniform(0.8, 1.1), r * tall), rng)
-        if rng.random() < 0.45:
-            r2 = r * rng.uniform(0.45, 0.65)
-            rock_chunk(mesh, (cx + rng.uniform(-r, r), cy + rng.uniform(-r, r), z + r * 0.3), (r2, r2, r2 * 0.9), rng)
-        if len(placed) >= 460:
-            break
-    return len(placed)
+# ----------------------------------------------------------------------------- trees and plants
+# Species and placement. Genshin-style foliage itself lives in foliage.py.
+
+OAKS = [(300, -700, 1.1), (-150, -1050, 0.95), (-1150, -150, 1.2), (-900, 700, 1.05), (-600, -450, 0.95),
+        (-350, 1000, 0.9), (650, -350, 0.85)]
+BIRCHES = [(1350, 560, 1.0), (1250, -80, 0.9), (930, 640, 0.95), (1750, -160, 0.85), (560, 800, 1.0),
+           (1600, 780, 0.8)]
+PINES = [(-1700, -950, 1.0), (-1150, -1600, 0.85), (-2000, -1250, 0.9), (-1750, 350, 1.0), (-1450, 950, 0.9),
+         (-2050, 0, 0.8)]
+BLOSSOM_TREE = (180, 230, 1.3)
+BUSHES = [(1750, 560, 0.9, True), (1650, -180, 0.8, False), (900, 120, 0.7, False), (-200, 650, 0.85, True),
+          (650, -1000, 0.9, False), (-1300, 300, 1.0, True), (1250, -800, 0.8, False), (-700, 1300, 0.9, False),
+          (300, 520, 0.6, False), (2100, 480, 0.7, True), (-950, -900, 0.9, True), (1050, 950, 0.75, False)]
 
 
-# ----------------------------------------------------------------------------- trees
-
-def icosphere(subdiv):
-    t = (1 + 5 ** 0.5) / 2
-    verts = [np.array(v, dtype=float) for v in
-             [(-1, t, 0), (1, t, 0), (-1, -t, 0), (1, -t, 0), (0, -1, t), (0, 1, t), (0, -1, -t), (0, 1, -t),
-              (t, 0, -1), (t, 0, 1), (-t, 0, -1), (-t, 0, 1)]]
-    verts = [v / np.linalg.norm(v) for v in verts]
-    faces = [(0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11), (1, 5, 9), (5, 11, 4), (11, 10, 2),
-             (10, 7, 6), (7, 1, 8), (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8), (3, 8, 9), (4, 9, 5), (2, 4, 11),
-             (6, 2, 10), (8, 6, 7), (9, 8, 1)]
-    for _ in range(subdiv):
-        cache, sub = {}, []
-
-        def mid(a, b):
-            key = (min(a, b), max(a, b))
-            if key not in cache:
-                m = verts[a] + verts[b]
-                verts.append(m / np.linalg.norm(m))
-                cache[key] = len(verts) - 1
-            return cache[key]
-
-        for a, b, c in faces:
-            ab, bc, ca = mid(a, b), mid(b, c), mid(c, a)
-            sub += [(a, ab, ca), (b, bc, ab), (c, ca, bc), (ab, bc, ca)]
-        faces = sub
-    return verts, faces
-
-
-def cloud_canopy(mesh, material, centre, radius, rng, puffs=7, squash=0.72):
-    """A canopy built as one soft cloud: several overlapping puffs whose normals all point
-    away from the canopy's centre, so light wraps the whole mass as one round shape
-    (the trick stylized games use for anime-soft trees)."""
-    centre = np.array(centre, dtype=float)
-    verts, faces = icosphere(2)
-    part = mesh.part(material)
-    puff_list = [(np.array([0.0, 0.0, 0.35]), 0.62)]  # crown
-    for k in range(puffs - 1):
-        ang = 2 * math.pi * k / (puffs - 1) + rng.uniform(-0.3, 0.3)
-        out = rng.uniform(0.42, 0.58)
-        up = rng.uniform(-0.15, 0.2)
-        puff_list.append((np.array([math.cos(ang) * out, math.sin(ang) * out, up]), rng.uniform(0.42, 0.56)))
-    for offset, size in puff_list:
-        pc = centre + offset * radius * np.array([1, 1, squash])
-        ids = []
-        for v in verts:
-            wob = 1 + 0.07 * math.sin(v[0] * 6 + v[1] * 4 + offset[0] * 9) + rng.uniform(-0.025, 0.025)
-            p = pc + v * radius * size * np.array([1, 1, 0.85]) * wob
-            mass_n = (p - centre) / (radius * np.array([1, 1, squash]))
-            n = 0.75 * mass_n / (np.linalg.norm(mass_n) or 1) + 0.25 * v
-            n = n / np.linalg.norm(n)
-            ids.append(part.vert(p, n, (p[0] / 150.0, p[1] / 150.0)))
-        for a, b, c in faces:
-            pa, pb, pc_ = (np.array(part.pos[k]) for k in (ids[a], ids[b], ids[c]))
-            outward = (pa + pb + pc_) / 3 - pc
-            if np.dot(np.cross(pb - pa, pc_ - pa), outward) >= 0:
-                part.tri(ids[a], ids[b], ids[c])
-            else:
-                part.tri(ids[a], ids[c], ids[b])
-
-
-def tapered_limb(mesh, points, radii, sides=8):
-    """A smooth tapering trunk or branch through `points` with matching `radii`."""
-    rings = []
-    for k, (p, r) in enumerate(zip(points, radii)):
-        p = np.array(p, dtype=float)
-        d = np.array(points[min(k + 1, len(points) - 1)], dtype=float) - np.array(points[max(k - 1, 0)], dtype=float)
-        d = d / (np.linalg.norm(d) or 1)
-        side = np.cross(d, [0, 0, 1.0]) if abs(d[2]) < 0.95 else np.array([1.0, 0, 0])
-        side /= np.linalg.norm(side)
-        up = np.cross(side, d)
-        rings.append([(p + (side * math.cos(a) + up * math.sin(a)) * r,
-                       side * math.cos(a) + up * math.sin(a))
-                      for a in np.linspace(0, 2 * math.pi, sides, endpoint=False)])
-    part = mesh.part("bark")
-    for k in range(len(rings) - 1):
-        for s in range(sides):
-            s1 = (s + 1) % sides
-            (p00, n00), (p01, n01) = rings[k][s], rings[k][s1]
-            (p10, n10), (p11, n11) = rings[k + 1][s], rings[k + 1][s1]
-            ids = [part.vert(p, n, (s / sides, (k + j) * 0.5)) for (p, n), j in
-                   (((p00, n00), 0), ((p01, n01), 0), ((p11, n11), 1), ((p10, n10), 1))]
-            outward = (n00 + n01 + n10 + n11) / 4
-            a, b, c, d = ids
-            pa, pb, pc_ = (np.array(part.pos[x]) for x in (a, b, c))
-            if np.dot(np.cross(pb - pa, pc_ - pa), outward) >= 0:
-                part.tri(a, b, c)
-                part.tri(a, c, d)
-            else:
-                part.tri(a, c, b)
-                part.tri(a, d, c)
+def all_tree_spots():
+    return ([(x, y, 120 * s) for x, y, s in OAKS] + [(x, y, 80 * s) for x, y, s in BIRCHES]
+            + [(x, y, 110 * s) for x, y, s in PINES] + [(BLOSSOM_TREE[0], BLOSSOM_TREE[1], 140)])
 
 
 def sample_height(coords, h, x, y):
@@ -544,41 +447,59 @@ def sample_height(coords, h, x, y):
                  + (h[i, j + 1] * (1 - tx) + h[i + 1, j + 1] * tx) * ty)
 
 
-# (x, y, size): broadleaf trees around the meadow, kept off the path.
-TREES = [(300, -700, 1.25), (-150, -1050, 1.05), (560, 760, 1.15), (-1150, -150, 1.35),
-         (-350, 1000, 1.0), (-900, 700, 1.2), (950, -350, 0.95), (-600, -450, 1.1), (1300, 700, 0.9)]
-BLOSSOM_TREE = (180, 230, 1.45)
-BUSHES = [(1750, 560, 0.9), (1650, -180, 0.8), (900, 120, 0.7), (-200, 650, 0.85), (650, -1000, 0.9),
-          (-1300, 300, 1.0), (1250, -800, 0.8), (-700, 1300, 0.9), (300, 520, 0.6), (2100, 480, 0.7)]
 
 
-def build_tree(mesh, coords, h, rng, x, y, s, foliage):
-    g = sample_height(coords, h, x, y)
-    if g < 100:
-        return
-    lean = np.array([rng.uniform(-50, 50), rng.uniform(-50, 50), 0.0]) * s
-    height = 360 * s
-    # Trunk: wide flared root, gentle taper and a slight curve.
-    pts = [np.array([x, y, g - 25]) + lean * (k / 4) ** 1.6 + np.array([0, 0, height * k / 4]) for k in range(5)]
-    radii = [44 * s, 30 * s, 24 * s, 20 * s, 16 * s]
-    tapered_limb(mesh, pts, radii)
-    top = pts[-1]
-    canopy_c = top + np.array([0, 0, 120 * s])
-    # Two or three branches reaching up into the canopy.
-    for k in range(rng.integers(2, 4)):
-        ang = rng.uniform(0, 2 * math.pi)
-        start = pts[2] + np.array([0, 0, rng.uniform(0, 40) * s])
-        end = canopy_c + np.array([math.cos(ang) * 120 * s, math.sin(ang) * 120 * s, rng.uniform(-30, 20) * s])
-        midp = (start + end) / 2 + np.array([0, 0, 30 * s])
-        tapered_limb(mesh, [start, midp, end], [13 * s, 10 * s, 7 * s], sides=6)
-    cloud_canopy(mesh, foliage, canopy_c, 250 * s, rng, puffs=int(rng.integers(6, 9)))
+def build_trees(island, foliage, coords, h, rng):
+    """Trunks go in the island mesh (they collide); canopies go in the foliage mesh (they don't)."""
+    planted = 0
+    for x, y, s in OAKS:
+        g = sample_height(coords, h, x, y)
+        if g > 100:
+            fo.oak(island, foliage, g, x, y, s, rng)
+            planted += 1
+    fo.oak(island, foliage, sample_height(coords, h, *BLOSSOM_TREE[:2]), *BLOSSOM_TREE, rng, species="blossom")
+    for x, y, s in BIRCHES:
+        g = sample_height(coords, h, x, y)
+        if g > 90:
+            fo.birch(island, foliage, g, x, y, s, rng)
+            planted += 1
+    for x, y, s in PINES:
+        g = sample_height(coords, h, x, y)
+        if g > 150 and math.hypot(x - LIGHTHOUSE[0], y - LIGHTHOUSE[1]) > 380:
+            fo.pine(island, foliage, g, x, y, s, rng)
+            planted += 1
+    for x, y, s, berries in BUSHES:
+        g = sample_height(coords, h, x, y)
+        if g > 60:
+            fo.bush(foliage, g, x, y, s, rng, berries=berries)
+    # Mushrooms in the shade under some of the oaks.
+    for x, y, s in OAKS[:5]:
+        a = rng.uniform(0, 2 * math.pi)
+        mx, my = x + math.cos(a) * 110 * s, y + math.sin(a) * 110 * s
+        if sample_height(coords, h, mx, my) > 100:
+            fo.mushrooms(foliage, lambda px, py: sample_height(coords, h, px, py), mx, my, rng,
+                         count=int(rng.integers(3, 7)))
+    return planted + 1
 
 
-def build_bush(mesh, coords, h, rng, x, y, s):
-    g = sample_height(coords, h, x, y)
-    if g < 60:
-        return
-    cloud_canopy(mesh, "leaf", (x, y, g + 55 * s), 130 * s, rng, puffs=5, squash=0.6)
+def path_pebbles(island, coords, h, rng):
+    """Little stones along the edges of the footpath."""
+    line = path_polyline(6)
+    count = 0
+    for k in range(0, len(line) - 1):
+        a, b = line[k], line[k + 1]
+        d = (b - a) / (np.linalg.norm(b - a) or 1)
+        side = np.array([-d[1], d[0]])
+        for _ in range(2):
+            t = rng.random()
+            p = a + (b - a) * t + side * rng.choice([-1, 1]) * rng.uniform(75, 110)
+            g = sample_height(coords, h, p[0], p[1])
+            if g < 40:
+                continue
+            r = rng.uniform(8, 20)
+            rock_chunk(island, (p[0], p[1], g + r * 0.1), (r, r * 0.9, r * 0.6), random.Random(int(rng.integers(1e9))))
+            count += 1
+    return count
 
 
 def build_bench(mesh, coords, h):
@@ -603,8 +524,7 @@ def build_grass(coords, h, nrm, noise, rng):
     X, Y = np.meshgrid(coords, coords, indexing="ij")
     sand, rock, path, _ = surface_weights(h, nrm[..., 2], X, Y, noise)
     grassy = (1 - sand) * (1 - rock) * (1 - path)
-    avoid = ([(tx, ty, 110 * ts) for tx, ty, ts in TREES] + [(BLOSSOM_TREE[0], BLOSSOM_TREE[1], 140),
-             (LIGHTHOUSE[0], LIGHTHOUSE[1], 420), (BENCH[0], BENCH[1], 120)])
+    avoid = all_tree_spots() + [(LIGHTHOUSE[0], LIGHTHOUSE[1], 420), (BENCH[0], BENCH[1], 120)]
 
     def spot_ok(x, y):
         fi, fj = int((x - coords[0]) / RES), int((y - coords[0]) / RES)
@@ -672,7 +592,47 @@ def build_grass(coords, h, nrm, noise, rng):
                 flowers.tri(q[0], q[1], q[2])
                 flowers.tri(q[0], q[2], q[3])
             n_flowers += 1
-    return meadow, clumps, n_flowers
+    # Ground plants (crossed cards from the plant atlas).
+    plants = meadow.part("plant")
+    n_plants = 0
+    # Ferns gather around tree roots, in the shade.
+    for tx, ty, tr in all_tree_spots():
+        for _ in range(int(rng.integers(3, 7))):
+            a, r = rng.uniform(0, 2 * math.pi), rng.uniform(tr * 0.9, tr * 2.0)
+            x, y = tx + math.cos(a) * r, ty + math.sin(a) * r
+            if spot_ok(x, y) is None:
+                continue
+            fo.plant_cards(plants, x, y, sample_height(coords, h, x, y), "fern", rng.uniform(55, 85), rng)
+            n_plants += 1
+    # Dune grass on the sandy cove and beach edges, never on the path.
+    tries = 0
+    while tries < 6000:
+        tries += 1
+        x, y = rng.uniform(-EXTENT, EXTENT), rng.uniform(-EXTENT, EXTENT)
+        fi, fj = int((x - coords[0]) / RES), int((y - coords[0]) / RES)
+        if not (0 <= fi < len(coords) and 0 <= fj < len(coords)):
+            continue
+        if not (30 < h[fi, fj] < 120) or sand[fi, fj] < 0.6 or path[fi, fj] > 0.2 or nrm[fi, fj, 2] < 0.85:
+            continue
+        if abs(y - 150) < 160 and x > 2000:  # keep the dock landing open
+            continue
+        fo.plant_cards(plants, x, y, sample_height(coords, h, x, y), "dune", rng.uniform(45, 75), rng)
+        n_plants += 1
+        if n_plants > 420:
+            break
+    # Dandelions and flower spikes drift through the meadow in loose patches.
+    for kind, n_patches in (("dandelion", 10), ("spike", 8)):
+        for _ in range(n_patches):
+            px, py = rng.uniform(-1300, 1500), rng.uniform(-1200, 1200)
+            for _ in range(18):
+                a, r = rng.uniform(0, 2 * math.pi), 260 * math.sqrt(rng.random())
+                x, y = px + math.cos(a) * r, py + math.sin(a) * r
+                if spot_ok(x, y) is None:
+                    continue
+                fo.plant_cards(plants, x, y, sample_height(coords, h, x, y), kind,
+                               rng.uniform(38, 55) if kind == "dandelion" else rng.uniform(45, 70), rng)
+                n_plants += 1
+    return meadow, clumps, n_flowers + n_plants
 
 
 # ----------------------------------------------------------------------------- glTF
@@ -724,9 +684,16 @@ def write_glb(path, mesh, mesh_name, upward_parts=()):
                           "type": "VEC4"})
         accessors.append({"bufferView": add_view(idx.tobytes(), 34963), "componentType": 5125, "count": len(idx),
                           "type": "SCALAR"})
+        uv1 = np.array(part.uv1, dtype=np.float32)
+        uv2 = np.array(part.uv2, dtype=np.float32)
+        accessors.append({"bufferView": add_view(uv1.tobytes(), 34962), "componentType": 5126, "count": len(uv1),
+                          "type": "VEC2"})
+        accessors.append({"bufferView": add_view(uv2.tobytes(), 34962), "componentType": 5126, "count": len(uv2),
+                          "type": "VEC2"})
         materials.append({"name": f"M_Island_{name}", "pbrMetallicRoughness": {"metallicFactor": 0.0,
                                                                                 "roughnessFactor": 0.9}})
-        primitives.append({"attributes": {"POSITION": a, "NORMAL": a + 1, "TEXCOORD_0": a + 2, "COLOR_0": a + 3},
+        primitives.append({"attributes": {"POSITION": a, "NORMAL": a + 1, "TEXCOORD_0": a + 2, "COLOR_0": a + 3,
+                                          "TEXCOORD_1": a + 5, "TEXCOORD_2": a + 6},
                            "indices": a + 4, "material": len(materials) - 1})
 
     doc = {"asset": {"version": "2.0", "generator": "Lyris make_island.py"},
@@ -743,6 +710,15 @@ def write_glb(path, mesh, mesh_name, upward_parts=()):
 
 
 # ----------------------------------------------------------------------------- preview
+
+FOLIAGE_PREVIEW = {
+    "oak": (np.array([0.34, 0.50, 0.36]), np.array([0.80, 0.88, 0.52])),
+    "bush": (np.array([0.36, 0.52, 0.36]), np.array([0.78, 0.87, 0.52])),
+    "birch": (np.array([0.50, 0.62, 0.38]), np.array([0.90, 0.93, 0.60])),
+    "pine": (np.array([0.22, 0.36, 0.32]), np.array([0.52, 0.66, 0.50])),
+    "blossom": (np.array([0.80, 0.52, 0.58]), np.array([1.0, 0.86, 0.80])),
+}
+
 
 def render_preview(out_path, meshes, textures, elev=24, azim=-122, zoom=1.0, centre=(0, 0, 0)):
     """Rough software preview that mimics the Unreal materials (splat blend, soft canopies)."""
@@ -779,11 +755,21 @@ def render_preview(out_path, meshes, textures, elev=24, azim=-122, zoom=1.0, cen
                 elif name == "rock":
                     g = float(np.clip((n[2] - 0.72) / 0.2, 0, 1))
                     base = avg["cliff"] * (1 - g) + avg["grass"] * g
-                elif name in ("leaf", "blossom"):
+                elif name.startswith(("shell_", "cards_")):
+                    species = name.split("_", 1)[1]
+                    lo, hi = FOLIAGE_PREVIEW[species]
                     up = float(np.clip(n[2] * 0.5 + 0.5, 0, 1))
-                    lo, hi = (leaf_dark, leaf_sun) if name == "leaf" else (pink_dark, pink_sun)
-                    base = lo * (1 - up) + hi * up
+                    depth = float(np.mean([part.uv1[k][0] for k in t]))
+                    base = (lo * (1 - up) + hi * up) * (0.55 + 0.45 * depth)
                     lit = 1.0
+                elif name == "berry":
+                    base, lit = np.array([0.72, 0.30, 0.42]), 1.0
+                elif name == "mushroom":
+                    base = np.array([0.85, 0.45, 0.32]) if n[2] > 0.3 else np.array([0.95, 0.90, 0.80])
+                elif name == "plant":
+                    base, lit = np.array([0.62, 0.74, 0.44]), 1.0
+                elif name in ("birch_bark", "pine_bark"):
+                    base = np.array([0.93, 0.91, 0.87]) if name == "birch_bark" else np.array([0.50, 0.36, 0.32])
                 elif name == "grass":
                     base = np.array([0.62, 0.72, 0.36])
                 elif name == "flower":
@@ -820,7 +806,10 @@ def main():
     coords, h = height_field()
 
     textures = pt.paint_all()
+    textures.update(pt.paint_extra())
     textures["flowers"] = pt.flower_atlas()
+    textures["leaf_atlas"] = pt.leaf_atlas()
+    textures["plants"] = pt.plant_atlas()
     textures["splat"] = make_splat(coords, h, noise)
     os.makedirs(os.path.join(HERE, "textures"), exist_ok=True)
     for old in os.listdir(os.path.join(HERE, "textures")):
@@ -828,24 +817,23 @@ def main():
     for name, arr in textures.items():
         pt.save(arr, os.path.join(HERE, "textures", f"{name}.png"))
 
-    island = Mesh()
+    island = Mesh()    # terrain, rocks, arch, trunks, bench, pebbles (collides)
+    foliage = Mesh()   # canopies, bushes, berries, mushrooms (no collision)
     nrm = build_terrain(island, coords, h, noise)
     n_rocks = place_cliff_rocks(island, coords, h, nrm, rng)
     build_arch(island, **ARCH)
-    for x, y, s in TREES:
-        build_tree(island, coords, h, nrng, x, y, s, "leaf")
-    build_tree(island, coords, h, nrng, *BLOSSOM_TREE, "blossom")
-    for x, y, s in BUSHES:
-        build_bush(island, coords, h, nrng, x, y, s)
+    n_trees = build_trees(island, foliage, coords, h, nrng)
+    n_pebbles = path_pebbles(island, coords, h, nrng)
     build_bench(island, coords, h)
-    meadow, n_clumps, n_flowers = build_grass(coords, h, nrm, noise, nrng)
+    meadow, n_clumps, n_small = build_grass(coords, h, nrm, noise, nrng)
 
     write_glb(os.path.join(HERE, "test_island.glb"), island, "SM_TestIsland")
+    write_glb(os.path.join(HERE, "test_island_foliage.glb"), foliage, "SM_TestIslandFoliage",
+              upward_parts=tuple(n for n in foliage.parts if n.startswith("cards_")))
     write_glb(os.path.join(HERE, "test_island_grass.glb"), meadow, "SM_TestIslandGrass",
-              upward_parts=("grass", "flower"))
-    old_preview = os.path.join(HERE, "preview.png")
-    render_preview(old_preview, [(island, 1), (meadow, 6)], textures)
-    render_preview(os.path.join(HERE, "preview_close.png"), [(island, 1), (meadow, 2)], textures,
+              upward_parts=("grass", "flower", "plant"))
+    render_preview(os.path.join(HERE, "preview.png"), [(island, 1), (foliage, 1), (meadow, 6)], textures)
+    render_preview(os.path.join(HERE, "preview_close.png"), [(island, 1), (foliage, 1), (meadow, 2)], textures,
                    elev=20, azim=15, zoom=2.4, centre=(900, 250, 0))
 
     allpos = np.array([p for part in island.parts.values() for p in part.pos])
@@ -868,7 +856,8 @@ def main():
         return sum(len(p.idx) for p in m.parts.values()) // 3
 
     print(f"island triangles {count(island)} ({sorted(island.parts)})  rock clusters {n_rocks}")
-    print(f"grass clumps {n_clumps}  flowers {n_flowers}  meadow triangles {count(meadow)}")
+    print(f"trees {n_trees}  foliage triangles {count(foliage)} ({sorted(foliage.parts)})  pebbles {n_pebbles}")
+    print(f"grass clumps {n_clumps}  flowers and plants {n_small}  meadow triangles {count(meadow)}")
     print("dock shore x", shore, " lighthouse ground", round(sample_height(coords, h, *LIGHTHOUSE)))
     print("bounds origin", [round(v) for v in meta["bounds_origin"]], "extent",
           [round(v) for v in meta["bounds_extent"]])
