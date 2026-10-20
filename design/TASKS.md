@@ -23,7 +23,7 @@ harvesting, farming and interacting with the world (T10 to T16).
 | T10 | Interaction system: an interface any actor can implement and a component that finds the best target in front of the player, shows a prompt and calls Interact | Harvest | | in progress | lane/harvest-T10-interaction | |
 | T11 | Items and inventory foundation: item definitions as data assets, an inventory component with stacks and change events | Harvest | | in progress | lane/harvest-T11-items | Collecting will extend this later |
 | T12 | Gathering nodes: rocks to mine, trees to chop, plants to forage; data-driven yields, tool required, respawn on real-world time so they refill while you're away | Harvest | T10, T11 | in progress | lane/harvest-T12-gathering | |
-| T13 | Farming plots: plant a seed, grow through stages on real-world time, harvest; nothing withers, watering speeds growth instead of being required | Harvest | T10, T11 | in progress | lane/harvest-T13-farming | Calm-by-default pillar |
+| T13 | Farming plots: plant a seed, grow through stages on real-world time, harvest; nothing withers, watering speeds growth instead of being required | Harvest | T10, T11 | in progress | lane/harvest-T13-farming | Build to `design/farming.md` (sections 1 to 5 and 9): timestamp growth, water bonus, fertilizer, daily care, quality |
 | T14 | Give the player character the interaction and inventory components and an Interact input | Player | T10, T11 | todo | | Hand-off from Harvest. Input actions are `.uasset`s, which cloud agents can't author: create them in code or via an editor script. The boat already uses E to step ashore at the dock, so pick a key that doesn't clash, or make E context-aware |
 | T15 | Place sample rocks, trees and a farming plot on the Harbor island; bump `BUILD_VERSION` | Environment | T12, T13 | todo | | Hand-off from Harvest |
 | T16 | Interaction prompt and a simple inventory view | UI | T10, T11 | todo | | |
@@ -51,10 +51,17 @@ Ideas or requests an agent ran into that are not scheduled yet.
 
 | ID | Task | Lane | Raised by | Notes |
 |---|---|---|---|---|
+| P1 | Charged tools: hoe and watering can that work on 3×3, then 5×5 cells | Harvest | Design (T28) | `design/farming.md` §7 step 2 |
+| P2 | Irrigation runes: placeable stones that keep the watering bonus on in a radius | Harvest | Design (T28) | §7 step 4 |
+| P3 | Seasons in the real-time calendar, plus rain that waters crops | World | Design (T28) | Farming reads them for dormancy and in-season bonus (§6) |
+| P4 | Special soils and glasshouses | Harvest | Design (T28) | §7 step 5; soils found on far islands |
+| P5 | Scarecrow constructs that harvest, replant and care in a radius | Harvest | Design (T28) | §7 step 6; objects, not creatures |
+| P6 | Crop hover tooltip: stage, time to ripe, active bonuses | UI | Design (T28) | Shows that tending helps without nagging |
 
 ## Done
 
 | ID | Task | Lane | Merged |
 |---|---|---|---|
+| T28 | Farming spec: Stardew-style farming in 3D with bonuses only, never punishment (`design/farming.md`, approved by the user) | Design | 2026-10-20 (PR #4) |
 | T9 | Options for geography and the central mystery; user chose the Inner Sea and the Forgetting Sea | Design | 2026-10-20 (PR #2) |
 | T8 | Generated `Content/Lyris/` assets stay out of git and are rebuilt by script (see DECISIONS) | Lead | 2026-10-20 |
