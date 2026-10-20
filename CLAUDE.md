@@ -14,6 +14,14 @@ overwriting each other's work. Read them before you change anything.
 4. For game content, the full concept is `design/Game_Concept.xlsx` and the pitch and
    pillars are in `README.md`.
 
+## New task IDs
+
+Several sessions add tasks at once, so IDs collide unless claimed first. To add a task:
+`git pull` on `main`, take the next unused `T` number (or your lane's own prefix, like `C`
+for Combat), and push that board row to `main` at once, before you start the branch. Only
+a lead pushes to `main`; if you are not the lead, put the row under **Proposed** in your PR
+with the ID `?` and the lead numbers it when merging.
+
 ## While you work
 
 - **Stay in your lane.** If your task needs a change in a path another lane owns (a new

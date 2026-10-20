@@ -42,7 +42,7 @@ harvesting, farming and interacting with the world (T10 to T16).
 
 | ID | Task | Lane | Depends on | Status | Branch | Notes |
 |---|---|---|---|---|---|---|
-| T17 | Write the chosen geography (Inner Sea) and mystery (Forgetting Sea) into `Game_Concept.xlsx` and a short canon note in `design/lore/`, flagging anything new for the user's OK | Design | | todo | | Follows T9 |
+| T27 | Write the chosen geography (Inner Sea) and mystery (Forgetting Sea) into `Game_Concept.xlsx` and a short canon note in `design/lore/`, flagging anything new for the user's OK | Design | | todo | | Follows T9 |
 | T7 | Remove the unused template variants (Combat, Platforming, SideScrolling) | Lead | | needs compile | lane/lead-T7-remove-template | |
 
 ## Proposed
