@@ -12,3 +12,5 @@ Settled choices. Agents follow these; only the user changes them. Newest at the 
 | 2026-10-20 | First prototype: one island, one boat sailing in the wind, a day/night cycle, and a dock lamp that holds back the mist at night. |
 | 2026-10-20 | Claude writes changes directly in code and files, rather than operating the user's screen. |
 | 2026-10-20 | Multiple agents work in lanes (`design/LANES.md`), one branch per task, PRs merged by the lead. |
+| 2026-10-20 | Generated content (`Content/Lyris/`, the Harbor map and its materials) stays out of git; each PC rebuilds it from the scripts in `Content/Python/`. |
+| 2026-10-20 | The unused Unreal template variants (Combat, Platforming, SideScrolling) are removed. |
