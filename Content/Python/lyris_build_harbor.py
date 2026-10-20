@@ -18,7 +18,7 @@ import os
 
 import unreal
 
-BUILD_VERSION = 7
+BUILD_VERSION = 8
 MAP_PATH = "/Game/Lyris/Maps/Harbor"
 MAT_DIR = "/Game/Lyris/Materials/Prototype"
 MARKER_PREFIX = "LyrisBuild_v"
@@ -46,11 +46,11 @@ ISLAND_DIR = "Art/TestIsland"
 ISLAND_GLB = "test_island.glb"
 GRASS_GLB = "test_island_grass.glb"
 FOLIAGE_GLB = "test_island_foliage.glb"
-FOLIAGE_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandFoliage_v7"
-GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass_v7"
-TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island_v7"
+FOLIAGE_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandFoliage_v8"
+GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass_v8"
+TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island_v8"
 ISLAND_META = "island_meta.json"
-ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland_v7"
+ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland_v8"
 
 DOCK_X0, DOCK_X1, DOCK_Y, DOCK_TOP = 1150.0, 2850.0, 150.0, 72.0
 BOAT_START = (2450.0, -230.0)
@@ -146,6 +146,25 @@ def _make_sea_material():
 #            self-light so trees never go muddy in shadow.
 #   grass    darker root to light tip along the blade, tinted by the large-scale ground colour,
 #            swaying in a slow travelling wind; wildflowers are masked cards that sway gently.
+
+# One palette for everything on the island, so ground, rock, grass and trees always agree.
+# Textures only add light/dark detail around these colours.
+ISLAND_PALETTE = {
+    "grass": "9DB872",          # meadow ground and grass blades
+    "grass_shade": "6E9061",
+    "sand": "EFE2C4",
+    "path": "CDAE86",
+    "rock_lit": "D6BC9F",       # muted warm stone ...
+    "rock_shade": "8E7680",     # ... with lavender shadows
+    "bark": "8A6A5A",
+}
+FOLIAGE_COLOURS = {  # species: (underside, sunlit top)
+    "Oak": ("4F7558", "CFE08E"),
+    "Bush": ("547A5A", "CCDE8C"),
+    "Birch": ("6C8C5E", "E6EFA4"),
+    "Pine": ("36584F", "93B486"),
+    "Blossom": ("B87C8C", "FFE6DC"),
+}
 
 SPLAT_EXTENT = 3200.0  # the splat map covers -3200..3200 cm on X and Y (see island_meta.json)
 TILE = 1.0 / 400.0     # ground textures repeat every 4 m
@@ -253,6 +272,15 @@ class _Graph:
     def fresnel(self, exponent=3.0):
         return self.node(unreal.MaterialExpressionFresnel, exponent=exponent, base_reflect_fraction=0.0)
 
+    def detail(self, sample, luma_mean, strength, pin="RGB"):
+        """Light/dark detail from a texture, centred on 1.0 (its colour is ignored)."""
+        lum = self.node(unreal.MaterialExpressionDotProduct)
+        self.link(sample, lum, pin, "A")
+        self.link(self.node(unreal.MaterialExpressionConstant3Vector,
+                            constant=unreal.LinearColor(0.299, 0.587, 0.114, 1.0)), lum, "", "B")
+        rel = self.mul(lum, k=1.0 / max(luma_mean, 0.05))
+        return self.lerp(self.const(1.0), rel, self.const(strength))
+
     def foliage_gradient(self):
         """0 underneath .. 1 sunlit top: the canopy-wide normal blended with height up the canopy (UV1.y)."""
         up = self.saturate(self.add(self.mul(self.up(), k=0.5), k=0.5))
@@ -289,37 +317,48 @@ def _splat_uv(g):
     return g.mul(g.add(g.mask(g.wp(), "RG"), k=SPLAT_EXTENT), k=1.0 / (2 * SPLAT_EXTENT))
 
 
-def _material_terrain(tex):
+def _material_terrain(tex, luma):
+    """Meadow, sand, footpath and rock from one palette; textures add only light and dark detail."""
     g = _Graph("IslandTerrain")
     if g.exists:
         return g.mat
+    P = ISLAND_PALETTE
     uv = g.world_uv(TILE)
-    # Two scales of grass mixed together so the repeat never shows.
-    grass = g.lerp(g.tex(tex["grass"], uv), g.tex(tex["grass"], g.world_uv(TILE * 0.27)), g.const(0.4),
-                   "RGB", "RGB")
-    sand = g.tex(tex["sand"], uv)
-    path = g.tex(tex["path"], g.world_uv(TILE * 1.4))
+    grass_detail = g.mul(g.detail(g.tex(tex["grass"], uv), luma["grass"], 0.55),
+                         g.detail(g.tex(tex["grass"], g.world_uv(TILE * 0.27)), luma["grass"], 0.45))
+    grass = g.mul(g.colour(P["grass"]), grass_detail)
+    sand = g.mul(g.colour(P["sand"]), g.detail(g.tex(tex["sand"], uv), luma["sand"], 0.5))
+    path = g.mul(g.colour(P["path"]), g.detail(g.tex(tex["path"], g.world_uv(TILE * 1.4)), luma["path"], 0.6))
     splat = g.tex(tex["splat"], _splat_uv(g), linear=True)
     steep = g.saturate(g.add(g.mul(g.up(), k=-5.5), k=4.4))  # 1 where steeper than ~37 degrees
     rock_w = g.op(unreal.MaterialExpressionMax, splat, steep, "G")
-    rock = g.triplanar(tex["cliff"], TILE)
-    base = g.lerp(grass, sand, splat, "", "RGB", "R")
-    base = g.lerp(base, path, splat, "", "RGB", "B")
+    rock = _rock_colour(g, tex, luma)
+    base = g.lerp(grass, sand, splat, "", "", "R")
+    base = g.lerp(base, path, splat, "", "", "B")
     base = g.lerp(base, rock, rock_w)
-    tone = g.lerp(g.colour("FFF4E2"), g.colour("EAF2FF"), splat, alpha_out="A")
+    tone = g.lerp(g.colour("FFF6E8"), g.colour("EEF3FF"), splat, alpha_out="A")
     g.out(g.mul(base, tone), unreal.MaterialProperty.MP_BASE_COLOR)
     g.out(g.const(0.94), unreal.MaterialProperty.MP_ROUGHNESS)
     return g.done()
 
 
-def _material_rock(tex):
+def _rock_colour(g, tex, luma):
+    """Muted warm stone: lighter facing up, lavender facing down, gentle triplanar detail."""
+    P = ISLAND_PALETTE
+    up = g.saturate(g.add(g.mul(g.up(), k=0.5), k=0.5))
+    colour = g.lerp(g.colour(P["rock_shade"]), g.colour(P["rock_lit"]), up)
+    tri = g.triplanar(tex["cliff"], TILE)
+    return g.mul(colour, g.detail(tri, luma["cliff"], 0.3, pin=""))
+
+
+def _material_rock(tex, luma):
     g = _Graph("IslandRock")
     if g.exists:
         return g.mat
-    rock = g.triplanar(tex["cliff"], TILE)
+    rock = _rock_colour(g, tex, luma)
+    grass = g.mul(g.colour(ISLAND_PALETTE["grass"]), g.detail(g.tex(tex["grass"], g.world_uv(TILE)), luma["grass"], 0.5))
     grass_top = g.saturate(g.add(g.mul(g.up(), k=5.0), k=-3.7))  # only nearly flat tops
-    g.out(g.lerp(rock, g.tex(tex["grass"], g.world_uv(TILE)), grass_top, "", "RGB"),
-          unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.lerp(rock, grass, grass_top), unreal.MaterialProperty.MP_BASE_COLOR)
     g.out(g.const(0.92), unreal.MaterialProperty.MP_ROUGHNESS)
     return g.done()
 
@@ -336,44 +375,46 @@ def _material_bark(tex, name="IslandBark", tint=None, texture="bark"):
     return g.done()
 
 
-def _material_shell(species, texture, shadow_hex, sun_hex):
-    """Opaque canopy shells: soft top-lit gradient, darker toward the inside (UV1.x depth),
-    gentle per-shell variation (UV2.x), a fake rim light and a little self-light."""
+def _material_shell(species, texture, luma_mean):
+    """Opaque canopy shells: soft top-lit gradient in the species colours, darker toward the
+    inside (UV1.x depth), gentle per-shell variation (UV2.x), a fake rim light and self-light."""
     g = _Graph(f"Shell_{species}")
     if g.exists:
         return g.mat
-    grad = g.foliage_gradient()
-    colour = g.lerp(g.colour(shadow_hex), g.colour(sun_hex), grad)
-    detail = g.lerp(g.const(1.0), g.tex(texture, g.world_uv(1.0 / 150.0)), g.const(0.4), "", "RGB")
-    depth = g.lerp(g.const(0.5), g.const(1.0), g.mask(g.uv(1), "R"))
-    vary = g.add(g.mul(g.mask(g.uv(2), "R"), k=0.16), k=0.92)
+    shadow_hex, sun_hex = FOLIAGE_COLOURS[species]
+    colour = g.lerp(g.colour(shadow_hex), g.colour(sun_hex), g.foliage_gradient())
+    detail = g.detail(g.tex(texture, g.world_uv(1.0 / 150.0)), luma_mean, 0.35)
+    depth = g.lerp(g.const(0.6), g.const(1.0), g.mask(g.uv(1), "R"))
+    vary = g.add(g.mul(g.mask(g.uv(2), "R"), k=0.12), k=0.94)
     base = g.mul(g.mul(g.mul(colour, detail), depth), vary)
     g.out(base, unreal.MaterialProperty.MP_BASE_COLOR)
-    rim = g.mul(g.mul(g.fresnel(3.0), g.colour(sun_hex)), k=0.25)
+    rim = g.mul(g.mul(g.fresnel(3.0), g.colour(sun_hex)), k=0.22)
     g.out(g.add(g.mul(base, k=0.18), rim), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     g.out(g.const(0.85), unreal.MaterialProperty.MP_ROUGHNESS)
     g.out(g.wind(g.mul(g.mask(g.uv(1), "G"), k=0.6), 0.45), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
     return g.done()
 
 
-def _material_cards(species, atlas, sun_hex):
-    """Leaf-clump cards: cut out of the atlas, two-sided foliage shading so light glows
-    through, cool in shadow and warm on top, each card slightly different."""
+def _material_cards(species, atlas, luma_mean):
+    """Leaf-clump fringe cards in exactly the shell's colours (the atlas only gives the leaf
+    shapes and a little light/dark detail), so they melt into the round canopy."""
     g = _Graph(f"Cards_{species}")
     if g.exists:
         return g.mat
     g.mat.set_editor_property("two_sided", True)
     g.mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
     g.mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_TWO_SIDED_FOLIAGE)
+    shadow_hex, sun_hex = FOLIAGE_COLOURS[species]
     sample = g.tex(atlas, g.uv(0))
-    tint = g.lerp(g.colour("8C9EC4"), g.colour("FFF6E6"), g.foliage_gradient())  # cool shade -> warm sun
-    vary = g.add(g.mul(g.mask(g.uv(2), "R"), k=0.2), k=0.9)
-    base = g.mul(g.mul(sample, tint, "RGB"), vary)
+    colour = g.lerp(g.colour(shadow_hex), g.colour(sun_hex), g.foliage_gradient())
+    vary = g.add(g.mul(g.mask(g.uv(2), "R"), k=0.12), k=0.94)
+    base = g.mul(g.mul(colour, g.detail(sample, luma_mean, 0.35)), vary)
     g.out(base, unreal.MaterialProperty.MP_BASE_COLOR)
     g.out(sample, unreal.MaterialProperty.MP_OPACITY_MASK, "A")
-    g.out(g.mul(g.colour(sun_hex), k=0.55), unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
-    g.out(g.mul(base, k=0.15), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-    g.out(g.const(0.8), unreal.MaterialProperty.MP_ROUGHNESS)
+    g.out(g.mul(g.colour(sun_hex), k=0.25), unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
+    rim = g.mul(g.mul(g.fresnel(3.0), g.colour(sun_hex)), k=0.22)
+    g.out(g.add(g.mul(base, k=0.18), rim), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.const(0.85), unreal.MaterialProperty.MP_ROUGHNESS)
     g.out(g.wind(g.mul(g.mask(g.uv(1), "G"), k=0.6), 0.45), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
     return g.done()
 
@@ -408,11 +449,13 @@ def _material_cutout(name, atlas, sway=0.6):
         return g.mat
     g.mat.set_editor_property("two_sided", True)
     g.mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+    g.mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_TWO_SIDED_FOLIAGE)
     uv = g.uv(0)
     sample = g.tex(atlas, uv)
     g.out(sample, unreal.MaterialProperty.MP_BASE_COLOR, "RGB")
     g.out(sample, unreal.MaterialProperty.MP_OPACITY_MASK, "A")
-    g.out(g.mul(sample, None, "RGB", k=0.15), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.mul(sample, None, "RGB", k=0.25), unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
+    g.out(g.mul(sample, None, "RGB", k=0.25), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     # Atlas cells are half the texture tall: 1 - frac(v * 2) is 0 at a plant's base, 1 at its top.
     in_cell = g.single(unreal.MaterialExpressionFrac, g.mul(g.mask(uv, "G"), k=2.0))
     top = g.add(g.mul(in_cell, k=-1.0), k=1.0)
@@ -420,19 +463,22 @@ def _material_cutout(name, atlas, sway=0.6):
     return g.done()
 
 
-def _material_grass(tex):
+def _material_grass(tex, luma):
+    """Blades in the meadow's own colour (slightly darker root, lighter tip), sharing the ground's
+    large colour patches, lit through like leaves so back faces never go dark."""
     g = _Graph("IslandGrass")
     if g.exists:
         return g.mat
     g.mat.set_editor_property("two_sided", True)
-    v = g.mask(g.node(unreal.MaterialExpressionTextureCoordinate), "G")  # 0 at the root, 1 at the tip
-    blade = g.lerp(g.colour("6C8A46"), g.colour("D9E690"), v)
-    # Pick up the ground's large colour patches so the meadow and the blades agree.
-    ground = g.mul(g.tex(tex["grass"], g.world_uv(TILE * 0.27)), None, "RGB", k=1.25)
-    colour = g.mul(blade, ground)
+    g.mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_TWO_SIDED_FOLIAGE)
+    v = g.mask(g.uv(0), "G")  # 0 at the root, 1 at the tip
+    ground = g.mul(g.colour(ISLAND_PALETTE["grass"]),
+                   g.detail(g.tex(tex["grass"], g.world_uv(TILE * 0.27)), luma["grass"], 0.45))
+    colour = g.mul(ground, g.lerp(g.const(0.8), g.const(1.15), v))
     g.out(colour, unreal.MaterialProperty.MP_BASE_COLOR)
-    g.out(g.mul(colour, k=0.1), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-    g.out(g.const(0.8), unreal.MaterialProperty.MP_ROUGHNESS)
+    g.out(g.mul(colour, k=0.2), unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
+    g.out(g.mul(colour, k=0.15), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    g.out(g.const(0.85), unreal.MaterialProperty.MP_ROUGHNESS)
     g.out(g.wind(g.mul(v, v)), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
     return g.done()
 
@@ -577,29 +623,25 @@ def _import_island():
         raise RuntimeError("island mesh missing after import")
 
     atlas = tex["leaf_atlas"]
+    luma = _island_meta().get("texture_luma", {})
+    luma = {name: luma.get(name, 0.6) for name in tex}
     materials = {
-        "terrain": _material_terrain(tex),
-        "rock": _material_rock(tex),
+        "terrain": _material_terrain(tex, luma),
+        "rock": _material_rock(tex, luma),
         "bark": _material_bark(tex),
         "birch_bark": _material_bark(tex, "IslandBirchBark", texture="birch_bark"),
         "pine_bark": _material_bark(tex, "IslandPineBark", tint="B89A92"),
         "wood": _material_bark(tex, "IslandBenchWood", tint="FFE6CC"),
-        "shell_oak": _material_shell("Oak", tex["leaf"], "4E7458", "D8E794"),
-        "shell_bush": _material_shell("Bush", tex["leaf"], "527A58", "D2E48E"),
-        "shell_birch": _material_shell("Birch", tex["leaf"], "6E8C5A", "EEF2A8"),
-        "shell_pine": _material_shell("Pine", tex["needles"], "34574E", "8FB284"),
-        "shell_blossom": _material_shell("Blossom", tex["blossom"], "B87888", "FFE8DE"),
-        "cards_oak": _material_cards("Oak", atlas, "FFF2C8"),
-        "cards_bush": _material_cards("Bush", atlas, "FFF2C8"),
-        "cards_birch": _material_cards("Birch", atlas, "FFF8D0"),
-        "cards_pine": _material_cards("Pine", atlas, "DDF0C8"),
-        "cards_blossom": _material_cards("Blossom", atlas, "FFE0D8"),
         "berry": _material_plain("IslandBerry", "B04A6E", 0.2),
         "mushroom": _material_mushroom(),
-        "grass": _material_grass(tex),
+        "grass": _material_grass(tex, luma),
         "flower": _material_cutout("IslandFlowers", tex["flowers"], 0.6),
         "plant": _material_cutout("IslandPlants", tex["plants"], 0.8),
     }
+    shell_textures = {"Oak": "leaf", "Bush": "leaf", "Birch": "leaf", "Pine": "needles", "Blossom": "blossom"}
+    for species, tex_name in shell_textures.items():
+        materials[f"shell_{species.lower()}"] = _material_shell(species, tex[tex_name], luma[tex_name])
+        materials[f"cards_{species.lower()}"] = _material_cards(species, atlas, luma["leaf_atlas"])
     for mesh in filter(None, (island, meadow, foliage)):
         for index, slot in enumerate(mesh.get_editor_property("static_materials")):
             names = [str(slot.get_editor_property("material_slot_name"))]

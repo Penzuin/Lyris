@@ -204,6 +204,15 @@ def surface_weights(h, nrm_z, X, Y, noise):
     return sand, rock, path, tone
 
 
+def texture_luma(arr):
+    rgb = arr[..., :3].astype(float) / 255.0
+    luma = rgb @ np.array([0.299, 0.587, 0.114])
+    if arr.shape[-1] == 4:
+        a = arr[..., 3].astype(float) / 255.0
+        return float((luma * a).sum() / max(a.sum(), 1e-6))
+    return float(luma.mean())
+
+
 def make_splat(coords, h, noise):
     """RGBA island-wide paint layer: R sand, G rock, B worn path, A warm(0)->cool(1) tone.
     Pixel (row, col) covers world (Y, X); the material samples it with UV = (X, Y)."""
@@ -545,7 +554,7 @@ def build_grass(coords, h, nrm, noise, rng):
             continue
         g = sample_height(coords, h, x, y)
         ground_n = nrm[cell]
-        height = rng.uniform(28, 60) * (0.75 + 0.55 * noise.fbm(x / 500.0, y / 500.0))
+        height = rng.uniform(20, 42) * (0.75 + 0.55 * noise.fbm(x / 500.0, y / 500.0))
         for _ in range(rng.integers(4, 8)):
             bx, by = x + rng.uniform(-14, 14), y + rng.uniform(-14, 14)
             yaw = rng.uniform(0, 2 * math.pi)
@@ -848,6 +857,9 @@ def main():
         "dock_shore_x": float(shore),
         "lighthouse": list(LIGHTHOUSE),
         "splat_extent": EXTENT,
+        # Average brightness of each texture; the materials use the textures only for light/dark
+        # detail around 1.0 and take every colour from one shared palette.
+        "texture_luma": {name: texture_luma(arr) for name, arr in textures.items() if name != "splat"},
     }
     with open(os.path.join(HERE, "island_meta.json"), "w") as f:
         json.dump(meta, f)

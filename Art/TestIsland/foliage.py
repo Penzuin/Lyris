@@ -123,7 +123,7 @@ def canopy_cards(mesh, material, canopy, rng, count, size, cell, droop=0.0):
             v /= np.linalg.norm(v)
             if v[2] > -0.45 or rng.random() < 0.25:
                 break
-        p = canopy.surface(v, rng.uniform(0.92, 1.08))
+        p = canopy.surface(v, rng.uniform(1.0, 1.12))
         n = canopy.normal(p)
         n /= np.linalg.norm(n)
         s = size * rng.uniform(0.75, 1.25)
@@ -135,7 +135,7 @@ def canopy_cards(mesh, material, canopy, rng, count, size, cell, droop=0.0):
         b = np.cross(n, t)
         spin = rng.uniform(0, 2 * math.pi)
         t, b = t * math.cos(spin) + b * math.sin(spin), -t * math.sin(spin) + b * math.cos(spin)
-        tilt = n * 0.35 + np.array([0, 0, -droop])  # lean the card a little out from the surface
+        tilt = n * 0.75 + np.array([0, 0, -droop])  # lean cards well out, so they read as a fringe
         corners = [p + (-t - b) * s / 2 - tilt * s * 0.2, p + (t - b) * s / 2 - tilt * s * 0.2,
                    p + (t + b) * s / 2 + tilt * s * 0.2, p + (-t + b) * s / 2 + tilt * s * 0.2]
         uvs = [(u0, v0 + 0.5), (u0 + 0.5, v0 + 0.5), (u0 + 0.5, v0), (u0, v0)]
