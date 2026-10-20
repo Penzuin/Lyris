@@ -11,6 +11,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "Lyris.h"
+#include "Player/LyrisSwimComponent.h"
 
 ALyrisCharacter::ALyrisCharacter()
 {
@@ -45,6 +46,9 @@ ALyrisCharacter::ALyrisCharacter()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
+
+	// Swimming (T20): floats, rides the waves and climbs out; see ULyrisSwimComponent
+	SwimComponent = CreateDefaultSubobject<ULyrisSwimComponent>(TEXT("SwimComponent"));
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
@@ -130,4 +134,14 @@ void ALyrisCharacter::DoJumpEnd()
 {
 	// signal the character to stop jumping
 	StopJumping();
+}
+
+void ALyrisCharacter::Jump()
+{
+	// in the water, Jump is a kick up or a climb onto the dock
+	if (SwimComponent && SwimComponent->HandleJumpPressed())
+	{
+		return;
+	}
+	Super::Jump();
 }
