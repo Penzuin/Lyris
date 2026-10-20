@@ -9,6 +9,7 @@
 
 class USpringArmComponent;
 class UCameraComponent;
+class ULyrisSwimComponent;
 class UInputAction;
 struct FInputActionValue;
 
@@ -30,6 +31,10 @@ class ALyrisCharacter : public ACharacter
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
+
+	/** Floating and swimming in the sea (T20) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<ULyrisSwimComponent> SwimComponent;
 	
 protected:
 
@@ -92,5 +97,11 @@ public:
 
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	/** Returns the swim component **/
+	FORCEINLINE ULyrisSwimComponent* GetSwimComponent() const { return SwimComponent; }
+
+	/** While swimming, Jump kicks up or climbs out instead of jumping */
+	virtual void Jump() override;
 };
 
