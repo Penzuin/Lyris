@@ -19,7 +19,6 @@
 namespace LyrisCombatTuning
 {
 	// Lyris house palette (moonglass light, warm gold, Lantern Star white).
-	static const FLinearColor Moonglass(0.19f, 0.52f, 0.79f);
 	static const FLinearColor Gold(0.77f, 0.42f, 0.06f);
 	static const FLinearColor StarWhite(0.9f, 0.95f, 1.0f);
 
@@ -51,11 +50,12 @@ ULyrisCombatComponent::ULyrisCombatComponent()
 	AttackAnims = { A1.Object, A2.Object, A3.Object };
 	ChargedAnim = AC.Object;
 
+	// Hand-to-hand: jab, cross, hook, then a front kick that staggers.
 	//                Damage Poise Knock Reach Radius HitDelay Duration Anim
-	Combo.Add({ 18.f, 12.f, 250.f, 110.f, 110.f, 0.14f, 0.42f, 0 });
-	Combo.Add({ 20.f, 12.f, 250.f, 110.f, 110.f, 0.14f, 0.42f, 1 });
-	Combo.Add({ 22.f, 15.f, 300.f, 120.f, 120.f, 0.16f, 0.48f, 0 });
-	Combo.Add({ 34.f, 45.f, 650.f, 130.f, 150.f, 0.22f, 0.62f, 2 });  // finisher: staggers
+	Combo.Add({ 14.f, 10.f, 200.f, 95.f, 95.f, 0.11f, 0.34f, 0 });   // jab
+	Combo.Add({ 16.f, 10.f, 220.f, 95.f, 95.f, 0.12f, 0.36f, 1 });   // cross
+	Combo.Add({ 19.f, 14.f, 280.f, 100.f, 105.f, 0.15f, 0.44f, 0 });  // hook
+	Combo.Add({ 28.f, 40.f, 600.f, 125.f, 120.f, 0.20f, 0.58f, 2 });  // front kick: staggers
 }
 
 void ULyrisCombatComponent::BeginPlay()
@@ -111,7 +111,6 @@ void ULyrisCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 
 	SinceComboStep += DeltaTime;
 	SinceStaminaUse += DeltaTime;
-	ArtReadyIn = FMath::Max(0.f, ArtReadyIn - DeltaTime);
 	if (SinceStaminaUse > LyrisCombatTuning::StaminaRegenDelay)
 	{
 		Stamina = FMath::Min(MaxStamina, Stamina + StaminaRegen * DeltaTime);
@@ -162,14 +161,6 @@ void ULyrisCombatComponent::ReadInput(APlayerController* PC, float DeltaTime)
 	{
 		StartDash();  // dashing cancels attacks, as in Genshin
 	}
-	if (PC->WasInputKeyJustPressed(EKeys::E))
-	{
-		StartArt();
-	}
-	if (PC->WasInputKeyJustPressed(EKeys::Q))
-	{
-		StartSurge();
-	}
 }
 
 void ULyrisCombatComponent::TickAction(float DeltaTime)
@@ -214,11 +205,11 @@ void ULyrisCombatComponent::TickAction(float DeltaTime)
 		{
 			bActionHitDone = true;
 			FLyrisHit Hit;
-			Hit.Damage = 46.f;
-			Hit.PoiseDamage = 60.f;
-			Hit.Knockback = Forward * 700.f;
+			Hit.Damage = 34.f;
+			Hit.PoiseDamage = 50.f;
+			Hit.Knockback = Forward * 650.f;
 			Hit.Instigator = Character;
-			HitArea(Character->GetActorLocation(), 230.f, Hit, true);  // a spinning cut around you
+			HitArea(Character->GetActorLocation(), 210.f, Hit, true);  // spinning roundhouse kick: hits all around
 			ALyrisCombatFx::Burst(GetWorld(), Feet, LyrisCombatTuning::Gold, 60.f, 260.f, 0.3f, 3000.f, true);
 		}
 		if (ActionTime >= 0.75f)
@@ -233,11 +224,11 @@ void ULyrisCombatComponent::TickAction(float DeltaTime)
 		{
 			bActionHitDone = true;
 			FLyrisHit Hit;
-			Hit.Damage = 40.f;
-			Hit.PoiseDamage = 50.f;
+			Hit.Damage = 30.f;
+			Hit.PoiseDamage = 45.f;
 			Hit.Knockback = FVector::ZeroVector;
 			Hit.Instigator = Character;
-			HitArea(Character->GetActorLocation(), 300.f, Hit, true);
+			HitArea(Character->GetActorLocation(), 260.f, Hit, true);  // stomp kick shockwave
 			ALyrisCombatFx::Burst(GetWorld(), Feet, LyrisCombatTuning::StarWhite, 80.f, 320.f, 0.35f, 4000.f, true);
 		}
 		if (bActionHitDone && ActionTime > 0.1f)
@@ -248,29 +239,6 @@ void ULyrisCombatComponent::TickAction(float DeltaTime)
 	}
 	case EAction::Dash:
 		if (ActionTime >= LyrisCombatTuning::DashTime)
-		{
-			Action = EAction::None;
-		}
-		break;
-	case EAction::Art:
-		if (ActionTime >= 0.35f)
-		{
-			Action = EAction::None;
-		}
-		break;
-	case EAction::Surge:
-		if (!bActionHitDone && ActionTime >= 0.45f)
-		{
-			bActionHitDone = true;
-			FLyrisHit Hit;
-			Hit.Damage = 90.f;
-			Hit.PoiseDamage = 120.f;
-			Hit.Attunement = Attunement;
-			Hit.Instigator = Character;
-			HitArea(Character->GetActorLocation(), 900.f, Hit, true);
-			ALyrisCombatFx::Burst(GetWorld(), Feet, LyrisCombatTuning::StarWhite, 100.f, 950.f, 0.7f, 40000.f, true);
-		}
-		if (ActionTime >= 0.9f)
 		{
 			Action = EAction::None;
 		}
@@ -331,7 +299,7 @@ void ULyrisCombatComponent::StartPlunge()
 void ULyrisCombatComponent::StartDash()
 {
 	ACharacter* Character = OwnerCharacter();
-	if (!Character || Stamina < DashCost || Action == EAction::Dash || Action == EAction::Surge)
+	if (!Character || Stamina < DashCost || Action == EAction::Dash)
 	{
 		return;
 	}
@@ -347,45 +315,6 @@ void ULyrisCombatComponent::StartDash()
 	Action = EAction::Dash;
 	ActionTime = 0.f;
 	ComboIndex = -1;
-}
-
-void ULyrisCombatComponent::StartArt()
-{
-	ACharacter* Character = OwnerCharacter();
-	if (!Character || ArtReadyIn > 0.f || Action == EAction::Surge)
-	{
-		return;
-	}
-	// Flare: a burst of lamplight that Dispels Misted foes around you.
-	ArtReadyIn = ArtCooldown;
-	Action = EAction::Art;
-	ActionTime = 0.f;
-	FLyrisHit Hit;
-	Hit.Damage = 24.f;
-	Hit.PoiseDamage = 25.f;
-	Hit.Attunement = Attunement;
-	Hit.Instigator = Character;
-	HitArea(Character->GetActorLocation(), 450.f, Hit, true);
-	const FVector Feet = Character->GetActorLocation() - FVector(0.f, 0.f, Character->GetSimpleCollisionHalfHeight());
-	ALyrisCombatFx::Burst(GetWorld(), Feet, LyrisCombatTuning::Moonglass, 60.f, 470.f, 0.45f, 20000.f, true);
-}
-
-void ULyrisCombatComponent::StartSurge()
-{
-	ACharacter* Character = OwnerCharacter();
-	if (!Character || SurgeEnergy < 100.f || Action == EAction::Surge)
-	{
-		return;
-	}
-	// Lighthouse Beam: a great sweep of light. You are untouchable while it gathers.
-	SurgeEnergy = 0.f;
-	Action = EAction::Surge;
-	ActionTime = 0.f;
-	bActionHitDone = false;
-	Health->SetInvulnerableFor(1.0f, false);
-	Character->GetCharacterMovement()->StopMovementImmediately();
-	PlayAnim(ChargedAnim, 0.9f);
-	ALyrisCombatFx::Burst(GetWorld(), Character->GetActorLocation(), LyrisCombatTuning::StarWhite, 20.f, 90.f, 0.45f, 30000.f);
 }
 
 AActor* ULyrisCombatComponent::FindSoftTarget(float Range, float ConeDegrees) const
@@ -506,21 +435,8 @@ void ULyrisCombatComponent::OnHitLanded(AActor* Target, const FLyrisHitResult& R
 	{
 		return;
 	}
-	SurgeEnergy = FMath::Min(100.f, SurgeEnergy + SurgeEnergyPerHit + (Result.bDispel ? 15.f : 0.f));
-	const FVector Where = Target->GetActorLocation();
-	if (Result.bDispel)
-	{
-		ALyrisCombatFx::Burst(GetWorld(), Where, LyrisCombatTuning::StarWhite, 20.f, 150.f, 0.35f, 12000.f);
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(static_cast<uint64>(72010), 1.2f, FColor(230, 240, 255), TEXT("Dispel!"));
-		}
-	}
-	else
-	{
-		ALyrisCombatFx::Burst(GetWorld(), Where, LyrisCombatTuning::Gold, 10.f, 45.f, 0.15f, 1500.f);
-	}
-	StartHitStop(Target, Result.bStaggered || Result.bDispel ? LyrisCombatTuning::HitStop * 1.6f : LyrisCombatTuning::HitStop);
+	ALyrisCombatFx::Burst(GetWorld(), Target->GetActorLocation(), LyrisCombatTuning::Gold, 10.f, 45.f, 0.15f, 1500.f);
+	StartHitStop(Target, Result.bStaggered ? LyrisCombatTuning::HitStop * 1.6f : LyrisCombatTuning::HitStop);
 }
 
 void ULyrisCombatComponent::StartHitStop(AActor* Target, float Seconds)
@@ -620,11 +536,9 @@ void ULyrisCombatComponent::ShowStatus() const
 		return;
 	}
 	// Temporary readout until the combat HUD (task C5).
-	const FString Art = ArtReadyIn > 0.f ? FString::Printf(TEXT("%.1fs"), ArtReadyIn) : TEXT("ready");
 	GEngine->AddOnScreenDebugMessage(static_cast<uint64>(72000), 0.0f, FColor(227, 174, 69),
-		FString::Printf(TEXT("Health %d/%d   Stamina %d   Flare (E) %s   Surge (Q) %d%%"),
-			FMath::RoundToInt(Health->Health), FMath::RoundToInt(Health->MaxHealth), FMath::RoundToInt(Stamina), *Art,
-			FMath::RoundToInt(SurgeEnergy)));
+		FString::Printf(TEXT("Health %d/%d   Stamina %d"),
+			FMath::RoundToInt(Health->Health), FMath::RoundToInt(Health->MaxHealth), FMath::RoundToInt(Stamina)));
 	GEngine->AddOnScreenDebugMessage(static_cast<uint64>(72001), 0.0f, FColor(240, 233, 220),
-		TEXT("LMB attack (hold: charged, in the air: plunge)   RMB/Shift dash   E Flare   Q Surge"));
+		TEXT("LMB punch combo (4th hit kicks)   Hold LMB roundhouse kick   LMB in the air stomp   RMB/Shift dash"));
 }

@@ -1,11 +1,11 @@
-// Lyris combat: the player's moveset (design/combat.md section 3).
+// Lyris combat: the player's moveset, hand-to-hand for now (design/combat.md section 10).
 //
-// One character, no swapping. Left click: 4-hit combo (hold for a charged attack, press
-// while falling for a plunge). Right click / Shift: dash, with a perfect-dodge "Lull".
-// E: Art (Flare). Q: Surge (Lighthouse Beam). Attunement: Lantern, so it Dispels Misted foes.
+// One character, no swapping, no abilities yet. Left click: jab, cross, hook, front kick
+// (a 4-hit combo). Hold left click: spinning roundhouse kick. Left click in the air: stomp
+// kick. Right click / Shift: dash, with a perfect-dodge "Lull".
 //
 // Until task C4 adds Enhanced Input actions, this reads keys directly, and only while a foe
-// is near (weapons stay sheathed otherwise, so E still boards the boat at the dock).
+// is near (fists stay down otherwise).
 
 #pragma once
 
@@ -34,9 +34,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	FVector RespawnLocation = FVector::ZeroVector;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
-	ELyrisAttunement Attunement = ELyrisAttunement::Lantern;
-
 	// ---- tuning
 	UPROPERTY(EditAnywhere, Category = "Combat|Stamina")
 	float MaxStamina = 100.f;
@@ -50,24 +47,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Combat|Stamina")
 	float ChargedCost = 25.f;
 
-	UPROPERTY(EditAnywhere, Category = "Combat|Art")
-	float ArtCooldown = 6.f;
-
-	UPROPERTY(EditAnywhere, Category = "Combat|Surge")
-	float SurgeEnergyPerHit = 7.f;
-
-	/** Weapons are drawn only when a foe is this close. */
+	/** Fists come up only when a foe is this close. */
 	UPROPERTY(EditAnywhere, Category = "Combat")
 	float EngageRange = 2500.f;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	float Stamina = 100.f;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
-	float SurgeEnergy = 0.f;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
-	float ArtReadyIn = 0.f;
 
 	UFUNCTION(BlueprintPure, Category = "Combat")
 	ULyrisHealthComponent* GetHealth() const { return Health; }
@@ -85,7 +70,7 @@ private:
 		int32 AnimIndex;
 	};
 
-	enum class EAction : uint8 { None, Attack, Charged, Plunge, Dash, Art, Surge };
+	enum class EAction : uint8 { None, Attack, Charged, Plunge, Dash };
 
 	UPROPERTY()
 	TObjectPtr<ULyrisHealthComponent> Health;
@@ -125,8 +110,6 @@ private:
 	void StartCharged();
 	void StartPlunge();
 	void StartDash();
-	void StartArt();
-	void StartSurge();
 
 	AActor* FindSoftTarget(float Range, float ConeDegrees) const;
 	void FaceTarget(AActor* Target);
