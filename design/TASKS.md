@@ -18,7 +18,7 @@ harvesting, farming and interacting with the world (T10 to T16).
 | T2 | Nightly mist that rises after dusk and clears at dawn | World | T1 | todo | | |
 | T3 | Lamps hold back the mist: a lit lamp clears a radius around it; the dock lamp is the first one | World | T2 | todo | | Dock lamp is spawned by the Harbor script |
 | T4 | Place the day/night actor, mist and lamp component in the Harbor map; bump `BUILD_VERSION` | Environment | T1, T2, T3 | todo | | Hand-off task |
-| T5 | One shared world wind (a single source all boats read), drifting slowly across the compass with gusts and calms; replaces the per-boat sine wobble in `ALyrisBoat::GetWindYaw` | Sailing | | in progress | lane/sailing-T5-world-wind | Today wind only swings ±25° around `BaseWindYaw` |
+| T5 | One shared world wind (a single source all boats read), drifting slowly across the compass with gusts and calms; replaces the per-boat sine wobble in `ALyrisBoat::GetWindYaw` | Sailing | | in review | lane/sailing-T5-world-wind | `ULyrisWindSubsystem` (deterministic from seed + server world time), tuned in Project Settings > Game > Lyris Wind; `BaseWindYaw` removed from the boat. Not compiled |
 | T6 | Small HUD: wind direction, sail setting, time of day | UI | T1, T5 | todo | | |
 | T10 | Interaction system: an interface any actor can implement and a component that finds the best target in front of the player, shows a prompt and calls Interact | Harvest | | in progress | lane/harvest-T10-interaction | |
 | T11 | Items and inventory foundation: item definitions as data assets, an inventory component with stacks and change events | Harvest | | in progress | lane/harvest-T11-items | Collecting will extend this later |

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "Sailing/LyrisWindSubsystem.h"
 #include "LyrisBoat.generated.h"
 
 class UBoxComponent;
@@ -23,6 +24,9 @@ class APlayerController;
  *
  * Speed depends on the sail and on the angle to the wind: sailing straight into the
  * wind barely moves, a beam reach (wind from the side) is fastest.
+ *
+ * The wind itself is shared by the whole world: every boat reads ULyrisWindSubsystem
+ * (tuned in Project Settings > Game > Lyris Wind).
  */
 UCLASS()
 class LYRIS_API ALyrisBoat : public APawn
@@ -45,10 +49,6 @@ public:
 	/** How fast the sail goes up or down (fraction per second). */
 	UPROPERTY(EditAnywhere, Category = "Sailing")
 	float SailChangeRate = 0.6f;
-
-	/** Direction the wind blows toward, in degrees (world yaw). It drifts slowly over time. */
-	UPROPERTY(EditAnywhere, Category = "Sailing")
-	float BaseWindYaw = 90.f;
 
 	/** Height of the sea surface. */
 	UPROPERTY(EditAnywhere, Category = "Sailing")
@@ -97,11 +97,16 @@ private:
 	float CameraPitch = -14.f;
 	bool bInteractWasDown = false;
 
+	/** This tick's reading of the shared world wind. */
+	FLyrisWindSample Wind;
+
 	UStaticMeshComponent* MakePart(FName Name, UStaticMesh* Mesh, USceneComponent* Parent, FVector Location,
 		FVector Scale, UMaterialInterface* Material, FRotator Rotation = FRotator::ZeroRotator);
 
-	float GetWindYaw() const;
-	float GetWindStrength() const;
+	/** Reads the shared world wind once per tick into Wind. */
+	void RefreshWind();
+	float GetWindYaw() const { return Wind.Yaw; }
+	float GetWindStrength() const { return Wind.Strength; }
 	float GetSailEfficiency(float RelativeWindDeg, FString& OutPointOfSail) const;
 
 	void Board(APlayerController* PC, APawn* Walker);
