@@ -82,7 +82,7 @@ private:
 	bool bLungeHitDone = false;
 	float Clock = 0.f;
 
-	UStaticMeshComponent* MakePart(FName Name, class UStaticMesh* Mesh, FVector Location, FVector Scale);
+	UStaticMeshComponent* MakePart(FName Name, class UStaticMesh* PartMesh, FVector Location, FVector Scale);
 	APawn* FindPlayer() const;
 	void SetState(EState NewState);
 	void UpdateLooks(float DeltaSeconds);

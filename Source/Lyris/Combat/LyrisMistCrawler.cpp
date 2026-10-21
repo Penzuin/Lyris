@@ -75,13 +75,13 @@ ALyrisMistCrawler::ALyrisMistCrawler()
 	EyeGlow->SetLightColor(LyrisCrawler::EyeCalm);
 }
 
-UStaticMeshComponent* ALyrisMistCrawler::MakePart(FName Name, UStaticMesh* Mesh, FVector Location, FVector Scale)
+UStaticMeshComponent* ALyrisMistCrawler::MakePart(FName Name, UStaticMesh* PartMesh, FVector Location, FVector Scale)
 {
 	UStaticMeshComponent* Part = CreateDefaultSubobject<UStaticMeshComponent>(Name);
 	Part->SetupAttachment(Body);
-	if (Mesh)
+	if (PartMesh)
 	{
-		Part->SetStaticMesh(Mesh);
+		Part->SetStaticMesh(PartMesh);
 	}
 	Part->SetRelativeLocation(Location);
 	Part->SetRelativeScale3D(Scale);
