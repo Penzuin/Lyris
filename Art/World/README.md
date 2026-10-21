@@ -45,13 +45,58 @@ ground. Coastlines stay where the map has them (the bake prints the agreement, a
 2. Do the printed import (Landscape mode > Manage > New > Import from File, first tile
    `World_Height_x0_y0.png`, the eight weight tiles, location, scale and component counts from
    the log). `w.import_steps()` prints them again.
-3. Run `w.build()` once more: it applies the material and settings to the landscape and saves.
-4. Build > Build HLODs, then Build > Build Minimap.
+3. Switch to **Selection Mode** (Shift+1, or the mode dropdown at the top left of the toolbar):
+   the import leaves the editor in Landscape mode, and big edits there froze the editor in
+   playtest 1. Then run `w.build()` once more: it applies the material and settings to the
+   landscape, sets the streaming grid and saves.
+4. Build > Build HLODs (see **HLODs** below), then Build > Build Minimap.
+
+**Rebuilds are incremental.** The build is a list of steps (sky, sea, water zone, lakes, rivers,
+world bounds, landmarks, player start, boat and dock, streaming), each with its own version in
+`STEP_VERSIONS`, recorded on the map's marker actor (`LyrisWorld_v<BUILD_VERSION>`). `w.build()`
+redoes only the steps whose version changed: it loads only that step's streamed actors, removes
+them 100 at a time behind a progress bar with a Cancel button (the log shows each batch), places
+them again and saves after each step. Everything else and the landscape stay as they are.
+
+- Changing what one step places: bump that step in `STEP_VERSIONS` and `BUILD_VERSION`.
+- `w.report()` says what is out of date and changes nothing. Opening the editor does the same:
+  `init_unreal.py` never rebuilds by itself, it prints the line to run.
+- `w.build(only=["sea"])` redoes just the named steps; `w.build(force=True)` redoes every step
+  except the landmarks.
+- Landmarks are redone only when their step version changes, or on purpose with
+  `import lyris_build_landmarks as lm; lm.rebuild()` (one landmark at a time; `only=["8"]` for
+  some). Do that once after the landscape import, with the landscape around them loaded, so they
+  trace onto it.
 
 Changing the terrain: rebake, delete the Landscape in the map, re-import, `w.build()`.
 Bake v2 (T36) changes the terrain: a landscape imported from a v1 bake must be re-imported.
-Changing anything else the script places: bump `BUILD_VERSION` and run `w.build()`; the
-landscape is kept.
+
+### Streaming (what you see in Play)
+
+The main runtime grid should be **Cell Size 25600, Loading Range 153600** (256 m cells loaded out
+to 1.5 km; HLODs show the world beyond). The build sets it from Python when the engine lets it and
+checks it. If it cannot, every `w.build()` and every editor start prints a **STREAMING NOT SET**
+block with the steps: Window > World Settings > World Partition Setup > Runtime Settings, then
+either *Grids > Index [0]* or *Runtime Partitions > Index [0] > Main Layer*: Cell Size 25600,
+Loading Range 153600; File > Save All; then `w.streaming_done()`. Until it is set, Play loads only
+about 256 m around you (playtest 1: only Moonharbor's harbour showed).
+
+1.5 km is right for the blockouts on an 8 GB card. When real art replaces them and Play gets close
+to the memory limit, drop the Loading Range to 102400 (1 km) before lowering anything else.
+
+### HLODs
+
+Without HLODs nothing past the loading range is drawn at all. **Build > Build HLODs** makes
+low-detail proxies for every cell (landscape and landmarks). Expect roughly **15 to 45 minutes**
+on the playtest PC the first time, mostly CPU and system RAM (it loads the world cell by cell; close
+other programs, 32 GB RAM is comfortable, 16 GB works but slowly). The 8 GB GPU is not the limit,
+but do it from a freshly opened editor with nothing loaded in the World Partition window. If the
+editor runs out of memory, build them from a terminal instead (no editor window open):
+
+    "<UE 5.8>\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "<project>\Lyris.uproject" /Game/Lyris/Maps/Lyris -run=WorldPartitionBuilderCommandlet -Builder=WorldPartitionHLODsBuilder -AllowCommandletRendering
+
+Rebuild HLODs after the landscape or the landmarks change. If the build makes nothing, set World
+Settings > World Partition Setup > Default HLOD Layer to one of the engine's HLOD layers first.
 
 ## 3. Landmarks (T36)
 
@@ -61,9 +106,9 @@ real spots from `design/world_map.md` and the server builds (`lyris-server/build
 
     python Art/World/make_landmarks.py        # about 30 s, same packages as the bake
 
-`lyris_build_world.build()` places them as one of its steps (BUILD_VERSION 2). To redo only the
-landmarks, for example after importing the landscape so they snap onto it:
-`import lyris_build_landmarks as lm; lm.rebuild()`.
+`lyris_build_world.build()` places them as one of its steps (only when the landmarks step version
+changes). To redo them on purpose, for example after importing the landscape so they snap onto it:
+`import lyris_build_landmarks as lm; lm.rebuild()` (one landmark at a time, cancellable).
 
 **Ground.** Each part carries the baked ground under it (`g`, MC Y) and how far its base sinks so it
 never floats on a slope (`k`). In the editor the script traces straight down onto the landscape and
@@ -99,3 +144,33 @@ script.
 **T37 dock spot.** On Lantern Pier's east side: a berth deck at (141.5, -2404), the dock lamp at
 (139.5, 66.2, -2414), and TargetPoints `T37_BoatStart` (147, -2404, sea level, facing north),
 `T37_DockLamp`, `T37_Mooring` and `T37_StepAshore` in `Landmarks/Moonharbor/LanternPier/Markers`.
+
+## If the editor freezes or runs out of video memory
+
+**Freezes during `w.build()`.** Rebuilds no longer delete everything at once, but:
+
+- Build from **Selection Mode** (Shift+1). `w.build()` refuses to start while Landscape mode is
+  open; if it wrongly thinks so, `w.build(check_mode=False)`.
+- The progress bar has **Cancel**. Each finished step is already saved; run `w.build()` again to
+  carry on. The Output Log shows `[Lyris] <step>: removed 300/1751` per batch, so a slow step is
+  visibly moving, not frozen.
+- If you had to kill the editor anyway: reopen, and `w.report()` shows what is left. Nothing is
+  rebuilt on startup.
+
+**"Video memory has been exhausted".** The project's editor defaults are set for an 8 GB card
+(`Config/DefaultEditorSettings.ini`, `Config/DefaultDeviceProfiles.ini`,
+`Config/DefaultEditorPerProjectUserSettings.ini`): High scalability in the viewport, a 1.5 GB
+texture pool, a smaller shadow page pool, a capped viewport resolution, and the map opening without
+last session's loaded regions. If the message still shows:
+
+1. Viewport toolbar > Settings > Engine Scalability Settings: **High** (or console `scalability 2`).
+   A choice you once made yourself is saved per user and wins over the project default.
+2. In Window > World Partition, unload areas you are not working on; never "Load All" on this map.
+3. Close other editor tabs and viewports (material editors and extra viewports each hold buffers),
+   and other GPU-heavy programs (browsers with video, games).
+4. Still over: console `r.Streaming.PoolSize 1000` for the session.
+
+Hardware ray tracing (`r.RayTracing=True` in `Config/DefaultEngine.ini`) also costs video memory for
+its acceleration structures, more once the 16384² landscape is in. Turning it off is a project-wide
+look decision for the Lead, not an editor setting.
+
