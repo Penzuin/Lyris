@@ -7,6 +7,8 @@ The game world is the Lyris Minecraft map at full size: 1 block = 1 m, 25 x 25 k
 |---|---|
 | Source atlas (from `lyris-companion/atlas`) | `atlas/` (`hmap.png`, `bidx.png`, `lakes.png`, `regions.png`, `biomes.png`, `painted.jpg`, `relief.jpg`, plus `lake_levels.json` and `biome_names.json` taken from the atlas page) |
 | Offline bake (plain Python) | `bake_terrain.py` |
+| Natural wonders (T49): data, design, close-ups | `wonders.json`, `design/natural_wonders.md`, `design/natural_wonders_sheet.jpg` |
+| The user's labelled map (biomes and wonders are read from it) | `design/reference/lyris_map_wonders.jpg` |
 | Bake output, not in git | `tiles/` (64 height tiles, 8 x 64 weight tiles, `terrain_manifest.json`) |
 | Editor build | `Content/Python/lyris_build_world.py` |
 | Landmark blockouts: generator, data, editor script | `make_landmarks.py`, `landmarks.json`, `Content/Python/lyris_build_landmarks.py` |
@@ -18,7 +20,10 @@ Needs Python 3.9+ with `pip install numpy scipy pillow`. From the project folder
 
     python Art/World/bake_terrain.py --workers 2
 
-Each worker needs about 2 GB of RAM; with 16 GB use `--workers 4`. For a quick look first,
+Tiles are baked in bands of 256 rows (`--band-rows`; same result, less memory). Workers share the whole-map fields
+with the main process (about 1 GB) and need about 0.3 GB each on top; with 16 GB use `--workers 4`. A tile takes
+about 50 to 100 s on one core: the v3 bake took 32 minutes with `--workers 2`. `--fields-cache fields.pkl` saves the
+whole-map fields on the first run and reuses them after (delete it when the atlas changes). For a quick look first,
 `--preview` bakes the same world at 12 m per vertex in under a minute (do not import that one).
 The bake is seeded, so every PC gets identical tiles.
 
@@ -34,6 +39,21 @@ soft shelf, a sloping seabed, river channels and lake basins at each lake's own 
 West Volcano cone and crater on Saltreach's spine and the bowl of Sunreach's crater. Moonharbor,
 Keep Elariel, the Observatory summit, the Delvers' Gate and Oruth's pit keep the map's exact
 ground. Coastlines stay where the map has them (the bake prints the agreement, about 99.8%).
+
+**Bake v3 (T49): natural wonders and map biomes.** A WONDERS stage sculpts the 23 wonders in `wonders.json` (one
+function per `kind`; designs in `design/natural_wonders.md`). It runs in two passes: a land pass after the volcanoes
+(rivers and lakes still carve through it afterwards) and a sea pass after the island chains. Wonders may switch off
+atlas lakes under them (the High Table, the Ladder Lakes' valley, the Steaming Fields), carve below the sea on purpose
+(the Rimeglass clefts, the Veil Falls cove, the Glowmere cenote) and add land in the sea (Lantern Isles, stacks, the
+causeway); the coast check leaves those out. Biomes also follow the colours of the user's map: its white north (plus
+all land north of the Delvers' Gate west of Skyshoals and the high mountain spine), its dark southern forests and
+Sunreach's pale grey plateau. The manifest gains `wonders` (one record each, with waterfalls and the meshes they need)
+and 14 wonder lakes and pools appended to `lakes`.
+
+Close-ups of every wonder without a full bake (about 30 s):
+
+    python Art/World/bake_terrain.py --sheet design/natural_wonders_sheet.jpg
+    python Art/World/bake_terrain.py --sheet out.jpg --sheet-only high_table,blue_eye
 
 ## 2. Build the map in the editor
 
@@ -70,6 +90,8 @@ them again and saves after each step. Everything else and the landscape stay as 
 
 Changing the terrain: rebake, delete the Landscape in the map, re-import, `w.build()`.
 Bake v2 (T36) changes the terrain: a landscape imported from a v1 bake must be re-imported.
+Bake v3 (T49) changes it again: re-run `stitch_heightmap.py` and `bake_biome_maps.py`, re-import, and re-run the
+foliage scatter.
 
 ### Streaming (what you see in Play)
 
