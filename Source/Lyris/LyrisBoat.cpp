@@ -15,6 +15,7 @@
 #include "InputCoreTypes.h"
 #include "Materials/MaterialInterface.h"
 #include "Player/LyrisSwimComponent.h"
+#include "Sailing/LyrisHullComponent.h"
 #include "Sailing/LyrisWindSettings.h"
 #include "UObject/ConstructorHelpers.h"
 #include "World/LyrisOceanSubsystem.h"
@@ -124,6 +125,9 @@ ALyrisBoat::ALyrisBoat()
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
 	Camera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	Camera->bUsePawnControlRotation = false;
+
+	// T21 hook: the hull's condition (rough water, leaks, bailing, patching).
+	HullCondition = CreateDefaultSubobject<ULyrisHullComponent>(TEXT("HullCondition"));
 }
 
 UStaticMeshComponent* ALyrisBoat::MakePart(FName Name, UStaticMesh* Mesh, USceneComponent* Parent, FVector Location,
@@ -304,12 +308,14 @@ void ALyrisBoat::UpdateSailing(float DeltaSeconds, APlayerController* PC)
 	FString PointOfSail;
 	const float Efficiency = GetSailEfficiency(Relative, PointOfSail);
 	// Climbing into steep oncoming swells costs a little speed (gentle; calm water has no effect).
-	const float TargetSpeed = Sail * Efficiency * GetWindStrength() * MaxSpeed * GetSwellSpeedFactor();
+	const float TargetSpeed = Sail * Efficiency * GetWindStrength() * MaxSpeed * GetSwellSpeedFactor()
+		* (HullCondition ? HullCondition->GetSpeedMultiplier() : 1.f); // T21 hook: water aboard slows her
 	Speed = FMath::FInterpTo(Speed, TargetSpeed, DeltaSeconds, 0.6f);
 
 	// Steering works better with way on.
 	const float Steerage = 0.3f + 0.7f * FMath::Clamp(Speed / (MaxSpeed * 0.5f), 0.f, 1.f);
-	AddActorWorldRotation(FRotator(0.f, Rudder * TurnRate * Steerage * DeltaSeconds, 0.f));
+	const float HullTurn = HullCondition ? HullCondition->GetTurnMultiplier() : 1.f; // T21 hook: and turns slower
+	AddActorWorldRotation(FRotator(0.f, Rudder * TurnRate * Steerage * HullTurn * DeltaSeconds, 0.f));
 
 	// Move, stopping against the island and the dock.
 	FHitResult Hit;
@@ -427,7 +433,7 @@ void ALyrisBoat::UpdateFloating(float DeltaSeconds)
 		TargetPitch = FMath::Clamp(FMath::RadiansToDegrees(FMath::Atan(SlopeX)), -MaxWavePitch, MaxWavePitch);
 		TargetRoll = FMath::Clamp(-FMath::RadiansToDegrees(FMath::Atan(SlopeY)), -MaxWaveRoll, MaxWaveRoll);
 	}
-	TargetZ += FreeboardOffset;
+	TargetZ += FreeboardOffset - (HullCondition ? HullCondition->GetSinkOffset() : 0.f); // T21 hook: water aboard, she sits lower
 
 	// Heel from the wind in the sail and from the turn, on top of the swell.
 	const float Heel = -Rudder * 4.f + Sail * 5.f * FMath::Sin(FMath::DegreesToRadians(

@@ -14,6 +14,7 @@ class UMaterialInterface;
 class USpringArmComponent;
 class UCameraComponent;
 class APlayerController;
+class ULyrisHullComponent;
 
 /**
  * Controls while aboard:
@@ -126,6 +127,9 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Spray")
 	void OnBowSpray(float Intensity, FVector Location, FVector Direction);
 
+	// T21 hook: the walker hidden aboard while sailing (their inventory holds the planks).
+	APawn* GetStoredWalker() const { return StoredWalker; }
+
 	/** The lamps' reach: the mist turns you back beyond this distance from the island. */
 	UPROPERTY(EditAnywhere, Category = "Sailing")
 	float WorldRadius = 55000.f;
@@ -165,6 +169,10 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UCameraComponent> Camera;
+
+	/** T21 hook: water aboard, leaks, bailing, patching and the swamped trip home (Sailing/LyrisHullComponent). */
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<ULyrisHullComponent> HullCondition;
 
 	UPROPERTY()
 	TObjectPtr<APawn> StoredWalker;
