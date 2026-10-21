@@ -109,6 +109,37 @@ Coordinates are MC block X, Z (and Y where known). Pin numbers match `world_map_
 | 20 | Sunreach's volcano crater | Sunreach | summit 4162, 5062 (Y 200), ±50 m | `hmap.png`; `lore.json` "a volcano crater in the south" | A sleeping volcano | Probably the bestiary's "East Volcano": black sand and warm reefs on its coast |
 | 21 | Saltreach's snowy spine | Saltreach | high point −5638, 3987 (Y 262) | `hmap.png` | "Orange badlands and mesas with a snowy spine" | Mountain landmark |
 
+### Natural wonders (T49)
+
+From the user's labelled map (`design/reference/lyris_map_wonders.jpg`), measured to ±10 m on its 1000-block grid. Full
+designs, sculpt details and open questions: `design/natural_wonders.md`; data: `Art/World/wonders.json`.
+
+| # | Wonder | Region | X, Z | In one line |
+|---|---|---|---|---|
+| W1 | The Rimeglass Caves | Quiet Reach | −2500, −6100 | Ice cliffs at the peninsula's west tip, four sea-cave clefts, two stacks of a fallen arch *(arch new)* |
+| W2 | The Sisterfjord | Quiet Reach | −1650, −5850 | Two deep fjord arms with sheer walls; two stacks, the Sisters, stand in the east arm *(Sisters new)* |
+| W3 | The Frozen Cascade | Quiet Reach | 2100, −5375 | A six-tier frozen fall from the highest summit down to the north sea |
+| W4 | Skyshoals | Quiet Reach | 4400, −4300 | A stone forest: 46 pillars, 40 to 110 m tall, trees on their tops |
+| W5 | The Ladder Lakes | Quiet Reach | −3600, −3200 | Seven turquoise lakes stepping down a forest valley behind travertine dams |
+| W6 | The Mistwall Cliffs | Quiet Reach | −5100, −2600 | A 1.5 km, 80 to 110 m sea-cliff wall and 16 sea stacks |
+| W7 | Veil Falls | Quiet Reach | −4550, −1600 | A 120 m wide curtain fall off the west-coast cliff into a round cove |
+| W8 | The Glowmere Grotto | Quiet Reach | 3200, −2600 (pit 3075, −2560) | A cenote by the river, a ledge path down to a glowing pool |
+| W9 | Elderheart | Quiet Reach | 5200, −2900 | A broad knoll crowned by a giant tree, its roots as ridges in the grass |
+| W10 | The Steaming Fields | Quiet Reach | 3600, −800 | Travertine terraces of milky hot pools stepping down to the strait |
+| W11 | The High Table | Quiet Reach | 6400, −1300 | A 1.2 x 0.7 km mesa, 60 to 70 m sheer, a stream falling off its east end |
+| W12 | The Long Door | Quiet Reach | 8600, 400 | A rock fin off the east cape with a sea door through it (lintel is a mesh) |
+| W13 | The Lantern Isles | East strait | 5700, 1500 | 87 dark islets, one lantern each; one ring isle with a pool |
+| W14 | The Glass Dunes | Saltreach | −4100, 1900 | Pale salt-glass crescent dunes with mirror pans between |
+| W15 | The Hexstone Causeway | Saltreach | −8700, 2300 | Basalt columns stepping from the west cape to the Western Spruces (O9) |
+| W16 | The Starglass Spires | Greengrace | −700, 3200 | Thirty needle spires on the crater's east rim, threaded with ringing star-glass |
+| W17 | The Skyfall Scar | Saltreach | −5600, 3800 | Five black-glass craters down the spine; the last breaks open the West Volcano *(breach new)* |
+| W18 | The Thunder Curtain | Sunreach | 2150, 4200 | Pale karst plateau of the west lobe; its east escarpment roars in the rains |
+| W19 | Leviathan's Rest | Sunreach | 1100, 4800 | Vertebrae, ribs and a skull of a hill-sized sea-beast in the mangroves *(bones new)* |
+| W20 | The Sunstair Terraces | Sunreach | 3300, 4300 | Contour terraces up the volcano ridge with one straight stair |
+| W21 | The Blue Eye | Sunreach (sea) | 6900, 4600 | A −62 m sea hole in a lagoon inside a ring of sand shallows |
+| W22 | Glowcap Hollow | Far south-west (O8) | −10750, 5800 | The mushroom isle as a bowl of hills round a glowing hollow |
+| W23 | The Bellstack | Quiet Reach (sea) | −1200, −6650 | *New, needs the user's OK*: a lone stack that booms like a bell (the map's unlabelled ✦) |
+
 ### Rivers
 
 | River | Course | Length | Notes |
@@ -133,8 +164,8 @@ Their names are working names *(new, need the user's OK)*. "Region" is the one t
 | O5 | The East Pair | 11089, −2920 and 10060, −2699 | 0.4 + 0.2 km² | Y 77 | plains, flower forest | Quiet Reach |
 | O6 | Blossom Isle | 9429, 3610 | 1.8 km² | Y 126 | meadow and cherry grove, a small lake | Quiet Reach (by distance, though it lies off Sunreach) |
 | O7 | The Bamboo Isles (three) | 7882, 5681; 9352, 5256; 9013, 6114 | 0.6 + 0.1 + 0.1 km² | Y 118 | bamboo jungle | Sunreach |
-| O8 | Mushroom Isle | −10717, 5862 | 0.6 km² | Y 82 | mushroom fields | Saltreach |
-| O9 | The Western Spruces | −8616, 1895 and −9145, 2073 | 0.3 + 0.1 km² | Y 82 | old spruce taiga | Saltreach |
+| O8 | Mushroom Isle (Glowcap Hollow, W22) | −10717, 5862 | 0.6 km² | Y 82 | mushroom fields | Saltreach |
+| O9 | The Western Spruces (Hexstone Causeway, W15) | −8616, 1895 and −9145, 2073 | 0.3 + 0.1 km² | Y 82 | old spruce taiga | Saltreach |
 
 ---
 

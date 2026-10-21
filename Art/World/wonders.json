@@ -1,0 +1,612 @@
+{
+ "_about": "Natural wonders of Lyris (T49). Read by Art/World/bake_terrain.py; design in design/natural_wonders.md. Coordinates are MC blocks (1 block = 1 m), measured on design/reference/lyris_map_wonders.jpg with px = 2626.43 + 0.195146 * X, py = 2038.37 + 0.195357 * Z (fitted to the map's 1000-block grid, max error 1 px = 5 m). Heights are metres above sea level (MC Y - 63).",
+ "version": 1,
+ "wonders": [
+  {
+   "id": "bellstack",
+   "name": "The Bellstack",
+   "region": "Quiet Reach (north sea)",
+   "mc_x": -1200,
+   "mc_z": -6650,
+   "kind": "sea_stack",
+   "canon": "new",
+   "measured": "unlabelled marker under the title cartouche, px (2391, 739)",
+   "params": {
+    "radius": 44,
+    "height": 70,
+    "cleft_width": 7,
+    "cleft_rot": 20,
+    "shoal_radius": 160,
+    "shoal_depth": -4
+   }
+  },
+  {
+   "id": "rimeglass",
+   "name": "The Rimeglass Caves",
+   "region": "Quiet Reach (Sisterfjord peninsula, west tip)",
+   "mc_x": -2500,
+   "mc_z": -6100,
+   "kind": "ice_cliffs",
+   "canon": "map",
+   "measured": "marker px (2138, 846)",
+   "params": {
+    "radius": 620,
+    "cliff_top": 56,
+    "band": 150,
+    "plunge": -14,
+    "clefts": [
+     [-2560, -6185, 22, 110],
+     [-2460, -6235, 18, 90],
+     [-2645, -6010, 20, 80],
+     [-2330, -6260, 16, 70]
+    ],
+    "spikes": 14,
+    "clefts_note": "x, z (seed point; snapped to the nearest coast), width, length inland",
+    "stacks": [
+     [-2705, -6175, 22, 50],
+     [-2655, -6232, 18, 44],
+     [-2810, -6060, 14, 34],
+     [-2560, -6290, 13, 30]
+    ],
+    "stacks_note": "x, z, radius, height: the two feet of the fallen ice arch and two lone stacks"
+   }
+  },
+  {
+   "id": "sisterfjord",
+   "name": "The Sisterfjord",
+   "region": "Quiet Reach (north peninsula)",
+   "mc_x": -1650,
+   "mc_z": -5850,
+   "kind": "fjord",
+   "canon": "map",
+   "measured": "marker px (2304, 895)",
+   "params": {
+    "centre": [-1950, -5500],
+    "radius": 950,
+    "north_limit": -6150,
+    "wall_top": 96,
+    "wall_band": 110,
+    "depth": -52,
+    "sisters": [
+     [-1530, -5600, 24, 74],
+     [-1462, -5655, 20, 64]
+    ]
+   }
+  },
+  {
+   "id": "frozen_cascade",
+   "name": "The Frozen Cascade",
+   "region": "Quiet Reach (glacier ridge)",
+   "mc_x": 2100,
+   "mc_z": -5375,
+   "kind": "icefall",
+   "canon": "map",
+   "measured": "marker px (3035, 989), on the highest summit (Y 318)",
+   "params": {
+    "top": [2120, -5330],
+    "foot": [2130, -5640],
+    "width": 95,
+    "tiers": 6,
+    "cirque_radius": 120
+   }
+  },
+  {
+   "id": "skyshoals",
+   "name": "Skyshoals",
+   "region": "Quiet Reach (north-east taiga)",
+   "mc_x": 4400,
+   "mc_z": -4300,
+   "kind": "stone_forest",
+   "canon": "map",
+   "measured": "marker px (3484, 1198), west bank of the inlet",
+   "params": {
+    "centre": [4230, -4280],
+    "radius": 560,
+    "count": 46,
+    "r_min": 11,
+    "r_max": 30,
+    "h_min": 38,
+    "h_max": 112,
+    "min_gap": 22,
+    "style": "pillar",
+    "salt": 301
+   }
+  },
+  {
+   "id": "ladder_lakes",
+   "name": "The Ladder Lakes",
+   "region": "Quiet Reach (western forest)",
+   "mc_x": -3600,
+   "mc_z": -3200,
+   "kind": "lake_ladder",
+   "canon": "map",
+   "measured": "marker px (1924, 1412); the seven turquoise lakes traced from the map",
+   "params": {
+    "lakes": [
+     [-3954, -3605, 52, 41, -145],
+     [-3856, -3521, 92, 63, 77],
+     [-3767, -3359, 101, 63, -165],
+     [-3646, -3252, 90, 35, 89],
+     [-3562, -3133, 57, 44, 115],
+     [-3448, -3015, 145, 55, 77],
+     [-3340, -2867, 46, 43, 100]
+    ],
+    "top_level": 49.0,
+    "step": 3.2,
+    "band": 190,
+    "blend": 260,
+    "depth": 5.0
+   }
+  },
+  {
+   "id": "elderheart",
+   "name": "Elderheart",
+   "region": "Quiet Reach (eastern plains)",
+   "mc_x": 5200,
+   "mc_z": -2900,
+   "kind": "knoll",
+   "canon": "map",
+   "measured": "marker px (3640, 1471)",
+   "params": {
+    "radius": 620,
+    "rise": 34,
+    "crown_radius": 75,
+    "roots": 7,
+    "root_height": 5.0
+   }
+  },
+  {
+   "id": "mistwall",
+   "name": "The Mistwall Cliffs",
+   "region": "Quiet Reach (west coast)",
+   "mc_x": -5100,
+   "mc_z": -2600,
+   "kind": "sea_cliffs",
+   "canon": "map",
+   "measured": "marker px (1630, 1530); 16 sea stacks traced from the map",
+   "params": {
+    "from": [-4980, -3450],
+    "to": [-4980, -1980],
+    "reach": 420,
+    "top": 92,
+    "band": 230,
+    "plunge": -16,
+    "stacks": [
+     [-5253, -3337, 20],
+     [-5296, -3322, 15],
+     [-5007, -3316, 8],
+     [-5117, -3285, 18],
+     [-5146, -3143, 8],
+     [-5338, -3059, 24],
+     [-5107, -2987, 19],
+     [-5225, -2980, 10],
+     [-5105, -2902, 21],
+     [-5231, -2782, 26],
+     [-5226, -2410, 12],
+     [-5220, -2216, 16],
+     [-5375, -2216, 8],
+     [-5251, -2040, 16],
+     [-5226, -2001, 12],
+     [-5020, -1973, 16]
+    ],
+    "stack_scale": 1.15,
+    "stack_h": [34, 72]
+   }
+  },
+  {
+   "id": "glowmere",
+   "name": "The Glowmere Grotto",
+   "region": "Quiet Reach (river country)",
+   "mc_x": 3200,
+   "mc_z": -2600,
+   "kind": "sinkhole",
+   "canon": "map",
+   "measured": "marker px (3250, 1529) on the river; the pit sits on the west bank, 150 m from the marker",
+   "params": {
+    "centre": [3075, -2560],
+    "radius": 80,
+    "depth": 40,
+    "lip": 3.5,
+    "ledge_depth": 13,
+    "pool_radius": 52
+   }
+  },
+  {
+   "id": "veil_falls",
+   "name": "Veil Falls",
+   "region": "Quiet Reach (west coast)",
+   "mc_x": -4550,
+   "mc_z": -1600,
+   "kind": "falls_lip",
+   "canon": "map",
+   "measured": "marker px (1737, 1727), on the coastal cliff",
+   "params": {
+    "lip": [-4520, -1610],
+    "facing": 180,
+    "lip_width": 120,
+    "lip_top": 74,
+    "channel_len": 380,
+    "channel_depth": 3.5,
+    "amphi_radius": 170,
+    "pool": [-4640, -1610, 70, -18]
+   }
+  },
+  {
+   "id": "high_table",
+   "name": "The High Table",
+   "region": "Quiet Reach (eastern uplands)",
+   "mc_x": 6400,
+   "mc_z": -1300,
+   "kind": "mesa",
+   "canon": "map",
+   "measured": "grey oval traced on the map: centre px (3882, 1778), axes 1190 x 720 m, rotated 19 deg; marker px (3875, 1783)",
+   "params": {
+    "centre": [6434, -1333],
+    "rx": 600,
+    "rz": 360,
+    "rot": 19,
+    "top": 108,
+    "talus": 70,
+    "stream": [
+     [6080, -1420],
+     [6560, -1250],
+     [6995, -1120]
+    ],
+    "pool": [7065, -1061,
+     62,
+     null
+    ],
+    "forest_ring": 420
+   }
+  },
+  {
+   "id": "steaming_fields",
+   "name": "The Steaming Fields",
+   "region": "Quiet Reach (south coast)",
+   "mc_x": 3600,
+   "mc_z": -800,
+   "kind": "travertine",
+   "canon": "map",
+   "measured": "marker px (3328, 1881); the four outer pools traced from the map",
+   "params": {
+    "centre": [3597, -807],
+    "radius": 300,
+    "rise": 16,
+    "terraces": 7,
+    "pool_radius": 62,
+    "pools": [
+     [3477, -963, 30],
+     [3774, -928, 30],
+     [3451, -683, 30],
+     [3733, -622, 30]
+    ]
+   }
+  },
+  {
+   "id": "long_door",
+   "name": "The Long Door",
+   "region": "Quiet Reach (east cape)",
+   "mc_x": 8600,
+   "mc_z": 400,
+   "kind": "sea_arch",
+   "canon": "map",
+   "measured": "marker px (4302, 2113), just off the cape tip",
+   "params": {
+    "from": [8575, 325],
+    "to": [8830, 430],
+    "width": 70,
+    "height": 52,
+    "end_height": 34,
+    "door": [0.55, 0.72],
+    "door_floor": -6
+   }
+  },
+  {
+   "id": "lantern_isles",
+   "name": "The Lantern Isles",
+   "region": "East strait (Quiet Reach / Sunreach)",
+   "mc_x": 5700,
+   "mc_z": 1500,
+   "kind": "islet_field",
+   "canon": "map",
+   "measured": "87 islets traced one by one from the map, marker px (3738, 2330)",
+   "params": {
+    "islets": [
+     [4916, 736, 23],
+     [5020, 783, 18],
+     [4930, 788, 14],
+     [4886, 895, 49],
+     [4760, 918, 18],
+     [4929, 984, 15],
+     [4801, 988, 14],
+     [4981, 1001, 9],
+     [4759, 1012, 14],
+     [4857, 1063, 44],
+     [4946, 1018, 10],
+     [4716, 1031, 12],
+     [4976, 1072, 17],
+     [5739, 1076, 25],
+     [4709, 1084, 15],
+     [5867, 1082, 16],
+     [5675, 1140, 28],
+     [4735, 1139, 21],
+     [4580, 1156, 29],
+     [5071, 1137, 13],
+     [5774, 1138, 10],
+     [4861, 1155, 14],
+     [5815, 1204, 32],
+     [5113, 1206, 19],
+     [4711, 1204, 14],
+     [4916, 1212, 21],
+     [5025, 1205, 15],
+     [5659, 1206, 14],
+     [5941, 1208, 20],
+     [6071, 1221, 20],
+     [4649, 1226, 17],
+     [5066, 1222, 12],
+     [5171, 1227, 19],
+     [5716, 1235, 22],
+     [6017, 1224, 16],
+     [5895, 1232, 12],
+     [6163, 1264, 27],
+     [4778, 1295, 27],
+     [4863, 1303, 33],
+     [4975, 1294, 25],
+     [5591, 1283, 14],
+     [4641, 1309, 27],
+     [5999, 1308, 29],
+     [5671, 1319, 31],
+     [6066, 1296, 12],
+     [6364, 1311, 25],
+     [5849, 1324, 24],
+     [5922, 1344, 14],
+     [4905, 1348, 11],
+     [6192, 1353, 15],
+     [4739, 1363, 21],
+     [6283, 1373, 26],
+     [5940, 1387, 12],
+     [6057, 1398, 18],
+     [6144, 1417, 30],
+     [6475, 1461, 36],
+     [6052, 1497, 38],
+     [6285, 1471, 23],
+     [6387, 1464, 17],
+     [6135, 1513, 27],
+     [6207, 1506, 20],
+     [6335, 1520, 12],
+     [6253, 1532, 15],
+     [6299, 1595, 35],
+     [6566, 1585, 26],
+     [6393, 1583, 14],
+     [6500, 1641, 28],
+     [6238, 1659, 30],
+     [6346, 1689, 23],
+     [6414, 1740, 28],
+     [6304, 1757, 19],
+     [6371, 1785, 12],
+     [6499, 1840, 29],
+     [6430, 1840, 14],
+     [6404, 1919, 29],
+     [6499, 1913, 12],
+     [6494, 1985, 9],
+     [6569, 2032, 28],
+     [6487, 2016, 12],
+     [6402, 2104, 25],
+     [6334, 2205, 30],
+     [6513, 2214, 23],
+     [6215, 2262, 21],
+     [6286, 2329, 28],
+     [6395, 2321, 17],
+     [6122, 2373, 31],
+     [5930, 2406, 14]
+    ],
+    "scale": 0.9,
+    "h_min": 4,
+    "h_max": 26,
+    "tall_over": 40,
+    "lagoon": [4888, 899, 52]
+   }
+  },
+  {
+   "id": "glass_dunes",
+   "name": "The Glass Dunes",
+   "region": "Saltreach (north-east coast)",
+   "mc_x": -4100,
+   "mc_z": 1900,
+   "kind": "dune_field",
+   "canon": "map",
+   "measured": "dune field traced on the map: about 1.3 x 0.9 km, marker px (1825, 2408)",
+   "params": {
+    "centre": [-4130, 1900],
+    "rx": 760,
+    "rz": 430,
+    "rot": 32,
+    "crest_bearing": 8,
+    "wavelength": 95,
+    "height": 11,
+    "pan_level": 2.2
+   }
+  },
+  {
+   "id": "hexstone",
+   "name": "The Hexstone Causeway",
+   "region": "Saltreach (west cape and the Western Spruces)",
+   "mc_x": -8700,
+   "mc_z": 2300,
+   "kind": "hex_causeway",
+   "canon": "map",
+   "measured": "marker px (928, 2486) on the small islet off the west cape",
+   "params": {
+    "paths": [
+     [
+      [-8240, 2170],
+      [-8470, 2235],
+      [-8650, 2265]
+     ],
+     [
+      [-8650, 2265],
+      [-8680, 2100],
+      [-8710, 1930]
+     ],
+     [
+      [-8650, 2265],
+      [-8840, 2140],
+      [-8990, 2070]
+     ]
+    ],
+    "width": 66,
+    "cell": 9.0,
+    "top": [0.6, 5.5],
+    "shallows": 140
+   }
+  },
+  {
+   "id": "starglass_spires",
+   "name": "The Starglass Spires",
+   "region": "Greengrace (crater lake, east rim)",
+   "mc_x": -700,
+   "mc_z": 3200,
+   "kind": "stone_forest",
+   "canon": "map",
+   "measured": "marker px (2489, 2667), on the crater's east rim",
+   "params": {
+    "centre": [-640, 3230],
+    "radius": 330,
+    "count": 30,
+    "r_min": 5,
+    "r_max": 15,
+    "h_min": 42,
+    "h_max": 125,
+    "min_gap": 16,
+    "style": "needle",
+    "salt": 317
+   }
+  },
+  {
+   "id": "skyfall_scar",
+   "name": "The Skyfall Scar",
+   "region": "Saltreach (the spine)",
+   "mc_x": -5600,
+   "mc_z": 3800,
+   "kind": "crater_chain",
+   "canon": "lore",
+   "measured": "five pits traced on the map from px (1265, 2480) to (1660, 2965); marker px (1533, 2779)",
+   "params": {
+    "pits": [
+     [-6848, 2440, 190, 58, 51.5, 24],
+     [-6515, 2723, 230, 66, 51.5, 28],
+     [-6336, 3167, 165, 62, 51.5, 24],
+     [-5992, 3449, 310, 82, 51.5, 32],
+     [-5310, 4402, 400, 190, 51.5, 44]
+    ],
+    "rim": 10,
+    "crystals": 60,
+    "note": "pit 5 starts at the West Volcano's crater and breaches its south-east flank"
+   }
+  },
+  {
+   "id": "thunder_curtain",
+   "name": "The Thunder Curtain",
+   "region": "Sunreach (western lobe)",
+   "mc_x": 2150,
+   "mc_z": 4200,
+   "kind": "karst_plateau",
+   "canon": "map",
+   "measured": "marker px (3045, 2857) at the lake outlet; the pale grey plateau is the map's grey region (read from the map colours)",
+   "params": {
+    "rise": 24,
+    "edge": 70,
+    "scarp": [
+     [2170, 3900],
+     [2120, 4200],
+     [2150, 4520]
+    ],
+    "scarp_top": 30,
+    "cell": 38
+   }
+  },
+  {
+   "id": "leviathans_rest",
+   "name": "Leviathan's Rest",
+   "region": "Sunreach (mangrove coast)",
+   "mc_x": 1100,
+   "mc_z": 4800,
+   "kind": "spine_ridge",
+   "canon": "map",
+   "measured": "marker px (2840, 2974)",
+   "params": {
+    "path": [
+     [1380, 4960],
+     [1180, 4830],
+     [1020, 4760],
+     [860, 4600],
+     [700, 4480],
+     [560, 4380]
+    ],
+    "vertebrae": 24,
+    "height": [24, 9],
+    "rib_len": [130, 50],
+    "skull": [1450, 5000, 70, 28]
+   }
+  },
+  {
+   "id": "sunstair",
+   "name": "The Sunstair Terraces",
+   "region": "Sunreach (volcano's north-west flank)",
+   "mc_x": 3300,
+   "mc_z": 4300,
+   "kind": "terraces",
+   "canon": "map",
+   "measured": "marker px (3270, 2876)",
+   "params": {
+    "centre": [3480, 4400],
+    "rx": 620,
+    "rz": 480,
+    "rot": -15,
+    "step": 4.2,
+    "min_h": 12,
+    "max_h": 110,
+    "stair": [
+     [3150, 4380],
+     [3800, 4430]
+    ]
+   }
+  },
+  {
+   "id": "blue_eye",
+   "name": "The Blue Eye",
+   "region": "Sunreach (east sea)",
+   "mc_x": 6900,
+   "mc_z": 4600,
+   "kind": "sea_hole",
+   "canon": "map",
+   "measured": "ring radii read from the map colours: dark core 65 m, blue lagoon to 370 m, pale shallows to 520 m; marker px (3972, 2935)",
+   "params": {
+    "hole_radius": 95,
+    "hole_floor": -62,
+    "lagoon_radius": 370,
+    "lagoon_floor": -11,
+    "ring_outer": 530,
+    "ring_level": -1.4,
+    "reef_rocks": 9
+   }
+  },
+  {
+   "id": "glowcap_hollow",
+   "name": "Glowcap Hollow",
+   "region": "Saltreach (far south-west isle)",
+   "mc_x": -10750,
+   "mc_z": 5800,
+   "kind": "bowl_island",
+   "canon": "map",
+   "measured": "marker px (528, 3169); the existing mushroom isle (O8)",
+   "params": {
+    "centre": [-10720, 5780],
+    "radius": 520,
+    "rim": 22,
+    "floor": 4,
+    "band": 60
+   }
+  }
+ ]
+}
