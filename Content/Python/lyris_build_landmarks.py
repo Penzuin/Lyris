@@ -5,10 +5,14 @@ from engine basic shapes in the house palette, one outliner folder per landmark
 (Landmarks/<Region>/<Name>/<part group>). Every actor is tagged LyrisWorldBuild, LyrisLandmark and
 LM_<id>, so real art can replace one landmark by deleting its folder and its entry in the JSON.
 
-Called by lyris_build_world.build() as one of its steps. On its own, to redo only the landmarks
-(for example after the landscape is imported, so they snap to it):
+Called by lyris_build_world.build() as one of its steps, only when that step's version changes. On its
+own, to redo the landmarks on purpose (for example after the landscape is imported, so they snap to it):
 
-    import lyris_build_landmarks as lm; lm.rebuild()
+    import lyris_build_landmarks as lm; lm.rebuild()                 # every landmark
+    import lyris_build_landmarks as lm; lm.rebuild(only=["8", "2"])  # just these ids (landmarks.json)
+
+Either way it works one landmark at a time: it loads only that landmark's streamed actors, removes them in
+batches of 100 behind a cancellable progress bar, places it again and logs it. Run it from Selection Mode.
 
 Ground: each part stores the baked ground under it. When the landscape is loaded the script traces
 straight down onto it and uses that instead, so blockouts follow any sculpting; otherwise it uses
@@ -23,6 +27,7 @@ import unreal
 LANDMARKS_JSON = "Art/World/landmarks.json"
 TAG = "LyrisWorldBuild"          # same tag as lyris_build_world, so a world rebuild clears these too
 LM_TAG = "LyrisLandmark"
+STEP_TAG = "LyrisStep_landmarks"  # lyris_build_world's per-step tag for this step
 LABEL_PREFIX = "LW_LM_"          # starts with lyris_build_world.LABEL_PREFIX ("LW_")
 MAT_DIR = "/Game/Lyris/Materials/World/Landmarks"
 MAT_VERSION = 1
@@ -233,7 +238,7 @@ class _Spawner:
         self.count = 0
 
     def _tag(self, actor, lm_id):
-        tags = [unreal.Name(TAG), unreal.Name(LM_TAG), unreal.Name("LM_" + lm_id)]
+        tags = [unreal.Name(TAG), unreal.Name(STEP_TAG), unreal.Name(LM_TAG), unreal.Name("LM_" + lm_id)]
         _set(actor, "tags", tags)
 
     def part(self, lm, p):
@@ -280,8 +285,8 @@ class _Spawner:
         actor = self.eas.spawn_actor_from_class(unreal.TargetPoint, loc, unreal.Rotator(0, 0, mk.get("yaw", 0.0)))
         actor.set_actor_label(f"{LABEL_PREFIX}{lm['id']}_{mk['n']}")
         actor.set_folder_path(lm["folder"] + "/Markers")
-        _set(actor, "tags", [unreal.Name(TAG), unreal.Name(LM_TAG), unreal.Name("LM_" + lm["id"]),
-                             unreal.Name(mk["n"])])
+        _set(actor, "tags", [unreal.Name(TAG), unreal.Name(STEP_TAG), unreal.Name(LM_TAG),
+                             unreal.Name("LM_" + lm["id"]), unreal.Name(mk["n"])])
         return actor
 
 
@@ -310,17 +315,42 @@ def markers(prefix="", data=None):
     return found
 
 
-def _ours(actor):
+def _tags(actor):
     try:
-        if unreal.Name(LM_TAG) in list(actor.get_editor_property("tags")):
-            return True
+        return [str(t) for t in actor.get_editor_property("tags")]
     except Exception:
-        pass
-    return actor.get_actor_label().startswith(LABEL_PREFIX)
+        return []
 
 
-def build_landmarks(manifest=None):
-    """Spawns every landmark. Assumes the old ones were removed (lyris_build_world does that)."""
+def _belongs(actor, lm_id):
+    if "LM_" + lm_id in _tags(actor):
+        return True
+    return actor.get_actor_label().startswith(f"{LABEL_PREFIX}{lm_id}_")
+
+
+def _place_one(sp, lm):
+    for p in lm["parts"]:
+        try:
+            sp.part(lm, p)
+        except Exception as exc:
+            _warn(f"{lm['id']} {p['n']}: {exc}")
+    for L in lm.get("lights", []):
+        try:
+            sp.light(lm, L)
+        except Exception as exc:
+            _warn(f"{lm['id']} light {L['n']}: {exc}")
+    for mk in lm.get("markers", []):
+        try:
+            sp.marker(lm, mk)
+        except Exception as exc:
+            _warn(f"{lm['id']} marker {mk['n']}: {exc}")
+
+
+def place(manifest=None, only=None, descs=None):
+    """Replaces landmarks one at a time: loads only that landmark's streamed actors, removes them in batches,
+    places it again. only: list of landmark ids (default: all, and actors of landmarks no longer in the JSON
+    are removed too). Returns the number of parts placed, or None if cancelled."""
+    import lyris_build_world as world
     data = load_landmarks()
     if data is None:
         return 0
@@ -328,49 +358,75 @@ def build_landmarks(manifest=None):
         _warn(f"landmarks.json was made against terrain bake v{data.get('bake_version')}, the tiles are "
               f"v{manifest.get('bake_version')}: rebake (python Art/World/bake_terrain.py) and rerun "
               "python Art/World/make_landmarks.py so blockouts sit on the ground")
+    eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    ids = [lm["id"] for lm in data["landmarks"]]
+    todo = [lm for lm in data["landmarks"] if only is None or lm["id"] in only]
+    if only is not None:
+        missing = [i for i in only if i not in ids]
+        if missing:
+            _warn(f"no landmarks with ids {missing} in {LANDMARKS_JSON}")
+    if descs is None:
+        descs = world._actor_descs()
     sp = _Spawner()
-    with unreal.ScopedSlowTask(len(data["landmarks"]), "Lyris: placing landmarks") as task:
-        task.make_dialog(True)
-        for lm in data["landmarks"]:
-            if task.should_cancel():
-                _warn("landmark placement cancelled")
-                break
-            task.enter_progress_frame(1, lm["name"])
-            for p in lm["parts"]:
-                try:
-                    sp.part(lm, p)
-                except Exception as exc:
-                    _warn(f"{lm['id']} {p['n']}: {exc}")
-            for L in lm.get("lights", []):
-                try:
-                    sp.light(lm, L)
-                except Exception as exc:
-                    _warn(f"{lm['id']} light {L['n']}: {exc}")
-            for mk in lm.get("markers", []):
-                try:
-                    sp.marker(lm, mk)
-                except Exception as exc:
-                    _warn(f"{lm['id']} marker {mk['n']}: {exc}")
+    removed = 0
+    try:
+        with unreal.ScopedSlowTask(len(todo) + 1, "Lyris: placing landmarks") as task:
+            task.make_dialog(True)
+            task.enter_progress_frame(1, "old landmarks")
+            if only is None:
+                def orphan(label):
+                    return label.startswith(LABEL_PREFIX) and not any(
+                        label.startswith(f"{LABEL_PREFIX}{i}_") for i in ids)
+                world.load_streamed(orphan, "landmarks no longer in landmarks.json", descs)
+                removed += world.destroy_in_batches(
+                    eas, [a for a in eas.get_all_level_actors() if orphan(a.get_actor_label())],
+                    "landmarks no longer in landmarks.json")
+            for k, lm in enumerate(todo):
+                if task.should_cancel():
+                    raise world._Cancelled(f"cancelled at landmark {k + 1}/{len(todo)} ({lm['name']})")
+                task.enter_progress_frame(1, f"{k + 1}/{len(todo)} {lm['name']}")
+                prefix = f"{LABEL_PREFIX}{lm['id']}_"
+                world.load_streamed(lambda label: label.startswith(prefix), f"landmark {lm['id']}", descs)
+                old = [a for a in eas.get_all_level_actors() if _belongs(a, lm["id"])]
+                gone = world.destroy_in_batches(eas, old, f"landmark {lm['id']} {lm['name']}")
+                removed += gone
+                before = sp.count
+                _place_one(sp, lm)
+                _log(f"landmarks {k + 1}/{len(todo)}: {lm['name']} (removed {gone}, placed {sp.count - before})")
+    except world._Cancelled as exc:
+        _warn(f"landmark placement {exc}; landmarks done so far are kept. Run it again to finish")
+        return None
     g = sp.ground
-    _log(f"{len(data['landmarks'])} landmarks, {sp.count} blockout parts; ground traced at {g.traced} spots, "
-         f"baked height used at {g.fallback} (landscape not loaded or not imported there)")
+    _log(f"{len(todo)} landmarks, {sp.count} blockout parts ({removed} old actors removed); ground traced at "
+         f"{g.traced} spots, baked height used at {g.fallback} (landscape not loaded or not imported there)")
     return sp.count
 
 
-def rebuild():
-    """Removes this script's actors and places the landmarks again, leaving the rest of the map alone."""
+def build_landmarks(manifest=None):
+    """Places every landmark, replacing any already there (kept for older callers)."""
+    return place(manifest) or 0
+
+
+def rebuild(only=None, check_mode=True):
+    """Redoes the landmarks (all, or only=[ids]) one at a time and leaves the rest of the map alone. Load the
+    landscape around them first (World Partition window) so they trace onto it."""
+    import lyris_build_world as world
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-    try:
-        import lyris_build_world as world
-        world._load_our_unloaded_actors()
-        manifest = world.load_manifest()
-    except Exception as exc:
-        _warn(f"could not load streamed landmark actors first ({exc})")
-        manifest = None
-    old = [a for a in eas.get_all_level_actors() if _ours(a)]
-    eas.destroy_actors(old)
-    _log(f"removed {len(old)} old landmark actors")
-    build_landmarks(manifest)
+    if not world._map_is_open():
+        unreal.log_error(f"[Lyris] open {world.MAP_PATH} first")
+        return
+    if check_mode and not world.leave_editor_modes(eas):
+        return
+    if isinstance(only, str):
+        only = [only]
+    count = place(world.load_manifest(), only)
+    if count is not None:
+        world.tag_dock_lamp(eas)  # the dock lamp is a landmark part; keep its gameplay tag
+        marker = world._marker(eas)
+        if marker is not None and only is None:
+            world._record_step(marker, "landmarks")
+            if not world.outdated_steps(world._recorded_steps(marker)):
+                marker.set_actor_label(f"{world.MARKER_PREFIX}{world.BUILD_VERSION}")
     les.save_current_level()
     unreal.EditorAssetLibrary.save_directory(MAT_DIR, only_if_is_dirty=True, recursive=True)

@@ -11,17 +11,31 @@ dock lamp, the step-ashore point and the harbor mooring at the T37_* markers fro
 The landscape itself is imported once by hand (Unreal's tiled landscape import is not exposed
 to Python in a way we can rely on): build() prepares everything, then logs the exact steps.
 Run build() again after the import and it finishes the landscape (material, Nanite, checks).
-Rebuilds only replace actors this script made (tag LyrisWorldBuild); the landscape is kept.
 
-init_unreal.py calls build(startup=True) each time the editor opens: it builds the map when
-BUILD_VERSION is newer than the map's, and otherwise only reports what is left to do.
+Rebuilds are incremental. The build is a list of steps (STEP_ORDER), each with its own version in
+STEP_VERSIONS, recorded on the map's marker actor (LyrisWorld_v<BUILD_VERSION>). build() redoes only the
+steps whose version changed: it loads only that step's streamed actors (by label, through the World
+Partition actor descriptors), removes them DELETE_BATCH at a time behind a cancellable progress bar, spawns
+the step again and saves. Everything else, and the landscape, is left alone. Each actor a step spawns is
+tagged LyrisWorldBuild and LyrisStep_<step>.
 
-    import lyris_build_world as w; w.build()            # build or finish
-    import lyris_build_world as w; w.build(force=True)  # rebuild even if up to date
-    import lyris_build_world as w; w.import_steps()     # print the landscape import steps again
+init_unreal.py calls build(startup=True) each time the editor opens: that only reports what is out of
+date and prints the line to run. Nothing is rebuilt until you run build() yourself.
+
+    import lyris_build_world as w; w.build()                # build what is out of date, or finish
+    import lyris_build_world as w; w.build(only=["sea"])    # redo just these steps
+    import lyris_build_world as w; w.build(force=True)      # redo every step except the landmarks
+    import lyris_build_world as w; w.report()               # what is out of date (changes nothing)
+    import lyris_build_world as w; w.import_steps()         # print the landscape import steps again
+    import lyris_build_world as w; w.streaming_done()       # after setting the runtime grid by hand
+
+Build from Selection Mode: big edits in Landscape mode froze the editor (playtest 1), so build() refuses
+to run while Landscape mode is open.
 
 Landmarks (T36): lyris_build_landmarks.py places the canon landmarks and the new island lamps from
-Art/World/landmarks.json as one of the build steps; lyris_build_landmarks.rebuild() redoes only those.
+Art/World/landmarks.json as one of the build steps (only when that step's version changes).
+lyris_build_landmarks.rebuild() redoes them on purpose, one landmark at a time, for example to snap them
+onto a newly imported landscape.
 
 Gameplay actors carry tags other lanes can find them by (so nothing needs a hardcoded position):
     LyrisPlayerBoat      the boat (ALyrisBoat) moored at T37_BoatStart
@@ -41,8 +55,37 @@ import struct
 
 import unreal
 
-BUILD_VERSION = 4  # 4: sea builds again (struct fix). 2: landmarks and new island lamps (T36). 3: one sea (T19 clipmap, no Water ocean), boat, dock
-                   # point, mooring and dock lamp in Moonharbor, player start on Lantern Pier (T37)
+BUILD_VERSION = 5  # 5: incremental rebuilds (per-step versions below); against a v3/v4 map only the sea is new.
+                   # 4: sea builds again (struct fix). 3: one sea (T19 clipmap, no Water ocean), boat, dock point,
+                   # mooring and dock lamp in Moonharbor, player start on Lantern Pier (T37). 2: landmarks and new
+                   # island lamps (T36).
+# Each step's own version. To change what one step places, bump that step here AND BUILD_VERSION: w.build()
+# then removes and respawns only that step's actors; nothing else in the map is touched.
+STEP_VERSIONS = {
+    "sky": 1,           # sun, sky atmosphere, sky light, sea mist fog, clouds, storybook grade
+    "sea": 1,           # the T19 clipmap sea (v3 maps never got it; v4 made it but recorded no version)
+    "water_zone": 1,
+    "lakes": 1,
+    "rivers": 1,
+    "bounds": 1,        # kill Z and the invisible world-edge walls
+    "landmarks": 1,     # T36 blockouts; to snap them onto a new landscape: lyris_build_landmarks.rebuild()
+    "player_start": 1,
+    "boat_dock": 1,     # boat, dock point, mooring, dock lamp tags (after landmarks: the lamp is a landmark part)
+    "streaming": 1,     # World Partition runtime grid (not recorded until it is really set)
+}
+STEP_ORDER = ["sky", "sea", "water_zone", "lakes", "rivers", "bounds", "landmarks", "player_start", "boat_dock",
+              "streaming"]
+STEP_TITLES = {"sky": "sky and lighting", "sea": "sea", "water_zone": "water zone", "lakes": "lakes",
+               "rivers": "rivers", "bounds": "world bounds", "landmarks": "landmarks", "player_start": "player start",
+               "boat_dock": "boat and dock", "streaming": "streaming settings"}
+# A map built at v3 or v4 (before per-step records): every actor step was built except the sea. Streaming is
+# settings only (no actors) and playtest 1 showed it was never applied, so it is retried as well.
+LEGACY_V3_STEPS = {s: v for s, v in STEP_VERSIONS.items() if s not in ("sea", "streaming")}
+STEP_TAG_PREFIX = "LyrisStep_"     # on every actor a step spawns
+STEP_VER_TAG = "LyrisStepVer_"     # on the marker: LyrisStepVer_<step>_<version>
+MARKER_TAG = "LyrisWorldMarker"
+DELETE_BATCH = 100                 # actors removed per destroy_actors call
+LOAD_BATCH = 200                   # streamed actors loaded per call
 TERRAIN_MAT_VERSION = 1  # versions the terrain material and its textures separately from the actors
 MAP_PATH = "/Game/Lyris/Maps/Lyris"
 MAT_DIR = "/Game/Lyris/Materials/World"
@@ -51,6 +94,8 @@ LAYER_INFO_DIR = f"{MAT_DIR}/LayerInfo"
 MARKER_PREFIX = "LyrisWorld_v"
 TAG = "LyrisWorldBuild"
 LABEL_PREFIX = "LW_"
+LANDMARK_LABEL_PREFIX = "LW_LM_"  # lyris_build_landmarks.LABEL_PREFIX
+_SKY_NAMES = ("Sun", "SkyAtmosphere", "SkyLight", "SeaMist", "Clouds", "StorybookGrade")
 
 WORLD_DIR = "Art/World"
 TILE_DIR = "Art/World/tiles"
@@ -932,6 +977,11 @@ def _make_sea_material():
 class _Builder:
     def __init__(self):
         self.eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+        self.step = None  # the build step being run: its actors are tagged LyrisStep_<step>
+
+    def tag(self, actor, *extra):
+        names = [TAG] + ([STEP_TAG_PREFIX + self.step] if self.step else []) + list(extra)
+        _set(actor, "tags", [unreal.Name(n) for n in names])
 
     def spawn(self, cls, label, loc=(0, 0, 0), rot=(0, 0, 0), folder="Lighting", always_loaded=True):
         actor = self.eas.spawn_actor_from_class(
@@ -940,7 +990,7 @@ class _Builder:
             raise RuntimeError(f"could not spawn {label}")
         actor.set_actor_label(LABEL_PREFIX + label)
         actor.set_folder_path(folder)
-        _set(actor, "tags", [unreal.Name(TAG)])
+        self.tag(actor)
         if always_loaded:
             _set(actor, "is_spatially_loaded", False, quiet=True)
         return actor
@@ -951,7 +1001,7 @@ class _Builder:
         actor.set_actor_scale3d(unreal.Vector(*scale))
         actor.set_actor_label(LABEL_PREFIX + label)
         actor.set_folder_path(folder)
-        _set(actor, "tags", [unreal.Name(TAG)])
+        self.tag(actor)
         _set(actor, "is_spatially_loaded", False, quiet=True)
         return actor
 
@@ -991,7 +1041,17 @@ def _water_body_common(actor):
         _warn(f"{actor.get_actor_label()}: turn off Affects Landscape by hand (property not found)")
 
 
-# ----------------------------------------------------------------------------- version and cleanup
+# ----------------------------------------------------------------------------- steps, versions and cleanup
+# Each build step owns its actors and has its own version. The map's marker (a Note labelled
+# LyrisWorld_v<BUILD_VERSION>, always loaded) records the version of every step it was built with as tags
+# (LyrisStepVer_<step>_<n>), so a rebuild redoes only the steps whose version changed and leaves every other
+# actor alone. Every actor a step spawns is tagged LyrisStep_<step>; actors from builds before v5 are
+# matched to their step by label (STEP labels below), which is also how streamed-out actors are found
+# without loading them.
+
+class _Cancelled(Exception):
+    """The user pressed Cancel on a progress dialog."""
+
 
 def _ours(actor):
     try:
@@ -1002,33 +1062,186 @@ def _ours(actor):
     return actor.get_actor_label().startswith(LABEL_PREFIX)
 
 
-def _load_our_unloaded_actors():
-    """World Partition only loads actors near the camera; load everything we made before a rebuild."""
+def _label(actor):
+    try:
+        return actor.get_actor_label()
+    except Exception:
+        return ""
+
+
+def _tags(actor):
+    try:
+        return [str(t) for t in actor.get_editor_property("tags")]
+    except Exception:
+        return []
+
+
+def step_of_label(label):
+    """The build step that owns an actor with this label (None if it is not one of ours)."""
+    if label.startswith(LANDMARK_LABEL_PREFIX):
+        return "landmarks"
+    if not label.startswith(LABEL_PREFIX):
+        return None
+    name = label[len(LABEL_PREFIX):]
+    if name in _SKY_NAMES:
+        return "sky"
+    if name == "Sea":
+        return "sea"
+    if name == "WaterZone":
+        return "water_zone"
+    if name.startswith("Lake_"):
+        return "lakes"
+    if name.startswith("River_"):
+        return "rivers"
+    if name.startswith("WorldEdge_"):
+        return "bounds"
+    if name.startswith("PlayerStart_"):
+        return "player_start"
+    if name in ("DockPoint", "Boat") or name.startswith(("Mooring_", "DockLamp_")):
+        return "boat_dock"
+    return None
+
+
+def _step_of_actor(actor):
+    for t in _tags(actor):
+        if t.startswith(STEP_TAG_PREFIX):
+            return t[len(STEP_TAG_PREFIX):]
+    return step_of_label(_label(actor))
+
+
+def _actor_descs():
+    """World Partition actor descriptors (labels and guids of every actor, loaded or not), or None."""
     lib = getattr(unreal, "WorldPartitionBlueprintLibrary", None)
     if lib is None or not hasattr(lib, "get_actor_descs"):
-        return
+        return None
     try:
-        descs = lib.get_actor_descs()
-        guids = [d.get_editor_property("guid") for d in descs
-                 if str(d.get_editor_property("label")).startswith(LABEL_PREFIX)
-                 or str(d.get_editor_property("label")).startswith(MARKER_PREFIX)]
-        if guids:
-            lib.load_actors(guids)
-            _log(f"loaded {len(guids)} streamed actors from the last build")
+        return lib.get_actor_descs()
     except Exception as exc:
-        _warn(f"could not load streamed actors before rebuild ({exc}); duplicates may remain, "
-              "load the whole map in the World Partition window and rebuild with force=True")
+        _warn(f"could not read World Partition actor descriptors ({exc})")
+        return None
+
+
+def load_streamed(label_test, what, descs=None):
+    """Loads only the streamed-out actors whose label passes label_test, in batches. Returns how many."""
+    lib = getattr(unreal, "WorldPartitionBlueprintLibrary", None)
+    descs = _actor_descs() if descs is None else descs
+    if not descs or lib is None or not hasattr(lib, "load_actors"):
+        return 0
+    try:
+        guids = [d.get_editor_property("guid") for d in descs if label_test(str(d.get_editor_property("label")))]
+    except Exception as exc:
+        _warn(f"{what}: could not read actor descriptors ({exc})")
+        return 0
+    for i in range(0, len(guids), LOAD_BATCH):
+        try:
+            lib.load_actors(guids[i:i + LOAD_BATCH])
+        except Exception as exc:
+            _warn(f"{what}: could not load streamed actors ({exc}); load the area in the World Partition window "
+                  "if old copies remain")
+            break
+    if guids:
+        _log(f"{what}: loaded {len(guids)} streamed actors")
+    return len(guids)
+
+
+def _alive(actor):
+    try:
+        return actor is not None and unreal.SystemLibrary.is_valid(actor)
+    except Exception:
+        return actor is not None
+
+
+def destroy_in_batches(eas, actors, what):
+    """Destroys actors DELETE_BATCH at a time behind a cancellable progress bar, logging each batch.
+    One destroy_actors call over thousands of World Partition actors froze the editor (playtest 1)."""
+    actors = [a for a in actors if _alive(a)]
+    n = len(actors)
+    if not n:
+        return 0
+    with unreal.ScopedSlowTask(n, f"Lyris: removing old {what}") as task:
+        task.make_dialog(True)
+        for i in range(0, n, DELETE_BATCH):
+            if task.should_cancel():
+                raise _Cancelled(f"cancelled while removing {what} ({i}/{n} removed)")
+            chunk = [a for a in actors[i:i + DELETE_BATCH] if _alive(a)]
+            task.enter_progress_frame(len(actors[i:i + DELETE_BATCH]), f"{what}: {min(i + DELETE_BATCH, n)}/{n}")
+            if chunk:
+                eas.destroy_actors(chunk)
+            _log(f"{what}: removed {min(i + DELETE_BATCH, n)}/{n}")
+    return n
+
+
+def _clear_step(step, eas, descs=None):
+    """Loads and removes only this step's actors from earlier builds."""
+    what = STEP_TITLES[step]
+    load_streamed(lambda label: step_of_label(label) == step, what, descs)
+    old = [a for a in eas.get_all_level_actors() if _step_of_actor(a) == step]
+    return destroy_in_batches(eas, old, what)
+
+
+def _clear_leftovers(eas, descs=None):
+    """Maps built before v3 had actors no current step owns (the Water plugin ocean): remove those."""
+    def leftover(label):
+        return label.startswith(LABEL_PREFIX) and step_of_label(label) is None
+    load_streamed(leftover, "leftovers from old builds", descs)
+    old = [a for a in eas.get_all_level_actors()
+           if leftover(_label(a)) and MARKER_TAG not in _tags(a) and not _label(a).startswith(MARKER_PREFIX)]
+    return destroy_in_batches(eas, old, "leftovers from old builds")
+
+
+def _marker(eas):
+    for actor in eas.get_all_level_actors():
+        if _label(actor).startswith(MARKER_PREFIX):
+            return actor
+    return None
+
+
+def _version_of(marker):
+    if marker is None:
+        return 0
+    try:
+        return int(_label(marker)[len(MARKER_PREFIX):])
+    except ValueError:
+        return 0
 
 
 def _current_version(eas):
-    for actor in eas.get_all_level_actors():
-        label = actor.get_actor_label()
-        if label.startswith(MARKER_PREFIX):
+    return _version_of(_marker(eas))
+
+
+def _recorded_steps(marker):
+    """{step: version} the map was built with. Maps built at v3/v4 have no record: everything but the sea
+    was built (the v3 sea step failed; v4 fixed it but recorded nothing), so only the sea is redone."""
+    found = {}
+    for t in _tags(marker) if marker is not None else []:
+        if t.startswith(STEP_VER_TAG):
+            step, _, ver = t[len(STEP_VER_TAG):].rpartition("_")
             try:
-                return int(label[len(MARKER_PREFIX):])
+                found[step] = int(ver)
             except ValueError:
-                return 0
-    return 0
+                pass
+    if found:
+        return found
+    if _version_of(marker) in (3, 4):
+        return dict(LEGACY_V3_STEPS)
+    return {}
+
+
+def _record_step(marker, step):
+    tags = [t for t in _tags(marker) if not t.startswith(f"{STEP_VER_TAG}{step}_")]
+    tags.append(f"{STEP_VER_TAG}{step}_{STEP_VERSIONS[step]}")
+    _set(marker, "tags", [unreal.Name(t) for t in tags])
+
+
+def _record_all(marker, recorded):
+    """Writes the full record (so a migrated v3/v4 map keeps its implied steps once it is saved)."""
+    tags = [t for t in _tags(marker) if not t.startswith(STEP_VER_TAG)]
+    tags += [f"{STEP_VER_TAG}{s}_{v}" for s, v in sorted(recorded.items())]
+    _set(marker, "tags", [unreal.Name(t) for t in tags])
+
+
+def outdated_steps(recorded):
+    return [s for s in STEP_ORDER if recorded.get(s, 0) != STEP_VERSIONS[s]]
 
 
 def _landscape(eas):
@@ -1040,6 +1253,45 @@ def _landscape(eas):
 
 def _landscape_proxies(eas):
     return [a for a in eas.get_all_level_actors() if isinstance(a, unreal.LandscapeProxy)]
+
+
+def leave_editor_modes(eas=None):
+    """Big deletes while Landscape mode is active froze the editor (playtest 1). Switches to the default
+    (Selection) mode if this engine exposes that to Python; otherwise refuses to go on while Landscape
+    mode is visibly active and says how to switch by hand. Returns True when it is safe to build."""
+    eas = eas or unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    candidates = []
+    les_cls = getattr(unreal, "LevelEditorSubsystem", None)
+    if les_cls is not None:
+        candidates.append(unreal.get_editor_subsystem(les_cls))
+    for name in ("EditorModeManagerSubsystem", "EditorModeSubsystem"):  # not in 5.8 as far as we know; cheap to try
+        cls = getattr(unreal, name, None)
+        if cls is not None:
+            try:
+                candidates.append(unreal.get_editor_subsystem(cls))
+            except Exception:
+                pass
+    for owner in candidates:
+        for fn_name in ("activate_default_mode", "editor_activate_default_mode"):
+            fn = getattr(owner, fn_name, None)
+            if fn is None:
+                continue
+            try:
+                fn()
+                _log("switched the editor to Selection Mode for the build")
+                return True
+            except Exception as exc:
+                _warn(f"could not switch editor mode ({exc})")
+    # No Python API: the Landscape mode's gizmo actor exists while that mode is open.
+    gizmo = getattr(unreal, "LandscapeGizmoActiveActor", None)
+    if gizmo is not None and any(isinstance(a, gizmo) for a in eas.get_all_level_actors()):
+        unreal.log_error("[Lyris] The editor is in Landscape mode. Switch to Selection Mode first (the mode "
+                         "dropdown at the top left of the main toolbar > Selection, or Shift+1), then run "
+                         "w.build() again. If you are sure you are already in Selection Mode: "
+                         "w.build(check_mode=False)")
+        return False
+    _log("tip: build from Selection Mode (Shift+1); Landscape or Foliage mode makes big edits very slow")
+    return True
 
 
 # ----------------------------------------------------------------------------- the manual import
@@ -1085,14 +1337,6 @@ def import_steps(manifest=None):
 
 
 # ----------------------------------------------------------------------------- build
-
-def _step(name, fn):
-    try:
-        fn()
-        _log(f"built {name}")
-    except Exception as exc:  # keep going so one failure doesn't stop the rest
-        _warn(f"could not build {name}: {exc}")
-
 
 def _map_is_open():
     try:
@@ -1151,9 +1395,72 @@ def _add_tags(actor, *names):
     _set(actor, "tags", tags)
 
 
-def build(force=False, startup=False):
-    """Builds the map if BUILD_VERSION is newer than the map's (or force), otherwise finishes an imported
-    landscape. startup=True (init_unreal.py) only reports when the map is already up to date."""
+def _save(les):
+    try:
+        les.save_current_level()
+    except Exception as exc:
+        _warn(f"could not save the map ({exc}); File > Save All")
+
+
+def _make_marker(b):
+    b.step = None
+    marker = b.spawn(unreal.Note, "Marker", (0, 0, 50000), folder="Gameplay")
+    marker.set_actor_label(f"{MARKER_PREFIX}0")  # the version is set once every step is current
+    _add_tags(marker, MARKER_TAG)
+    _set(marker, "text", "Built by Content/Python/lyris_build_world.py from Art/World. Its tags record each "
+                         "build step's version. Edits to actors a step places are lost when that step is "
+                         "rebuilt; the landscape is kept.", quiet=True)
+    return marker
+
+
+def _state(eas):
+    marker = _marker(eas)
+    recorded = _recorded_steps(marker)
+    return marker, _version_of(marker), recorded
+
+
+def report():
+    """What the editor runs at startup (init_unreal.py): says what is out of date and changes nothing."""
+    eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    run = "import lyris_build_world as w; w.build()"
+    if not unreal.EditorAssetLibrary.does_asset_exist(MAP_PATH):
+        _log(f"the Lyris world map is not built on this PC yet. In the Output Log (Python), run:  {run}")
+        return
+    if not _map_is_open():
+        _log(f"the open level is not {MAP_PATH}; open it to check its build, or run:  {run}")
+        return
+    marker, version, recorded = _state(eas)
+    todo = outdated_steps(recorded)
+    if not todo:
+        if version != BUILD_VERSION:
+            _log(f"World map steps are all current (map marked v{version}); w.build() marks it v{BUILD_VERSION}")
+        else:
+            _log(f"World map is up to date (v{version})")
+        if _landscape(eas) is None:
+            _log("the landscape is not imported yet: import_steps() prints how")
+        if streaming_is_right() is False:
+            streaming_manual_steps()
+        return
+    keep = [STEP_TITLES[s] for s in STEP_ORDER if s not in todo]
+    _warn(f"World map v{version} is older than the build scripts (v{BUILD_VERSION}). Nothing was changed. "
+          f"Steps to redo: {', '.join(STEP_TITLES[s] for s in todo)}"
+          + (f"; kept as they are: {', '.join(keep)}" if keep else ""))
+    _warn(f"To update, switch to Selection Mode (Shift+1) and run in the Output Log (Python):  {run}")
+    if "streaming" in todo and streaming_is_right() is False:
+        streaming_manual_steps()
+
+
+def build(force=False, only=None, startup=False, check_mode=True):
+    """Builds what is out of date, one step at a time, and finishes an imported landscape.
+
+    force=True   redo every step except the landmarks (those: lyris_build_landmarks.rebuild())
+    only=[...]   redo just these steps, e.g. only=["sea"] (names in STEP_ORDER)
+    startup=True only report (what init_unreal.py does when the editor opens); never rebuilds
+    check_mode   refuse to run while Landscape mode is active (big edits froze the editor there)
+    """
+    if startup:
+        report()
+        return
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     manifest = load_manifest()
@@ -1163,40 +1470,69 @@ def build(force=False, startup=False):
     if manifest.get("preview"):
         _warn("the terrain bake is a PREVIEW (low resolution). Rebake at full size before importing: "
               "python Art/World/bake_terrain.py --workers 2")
+    if only is not None:
+        only = [only] if isinstance(only, str) else list(only)
+        unknown = [s for s in only if s not in STEP_VERSIONS]
+        if unknown:
+            unreal.log_error(f"[Lyris] unknown build steps {unknown}; the steps are: {', '.join(STEP_ORDER)}")
+            return
 
     if not _open_or_create_map(les):
         unreal.log_error("[Lyris] could not open or create " + MAP_PATH)
         return
     if _is_partitioned() is False:
         _warn(f"{MAP_PATH} is not a World Partition map; streaming settings will not apply")
-
-    version = _current_version(eas)  # the version marker is always loaded
-    landscape = _landscape(eas)
-    if version >= BUILD_VERSION and not force:
-        if landscape is None:
-            _log(f"World map v{version} is built; the landscape is not imported yet")
-            import_steps(manifest)
-        elif startup:
-            _log(f"World map is up to date (v{version})")
-        else:
-            _finish_landscape(landscape, eas, manifest)
-            les.save_current_level()
-            _log(f"World map is up to date (v{version})")
+    if check_mode and not leave_editor_modes(eas):
         return
-    _log(f"building World map (v{version} -> v{BUILD_VERSION})")
-    _load_our_unloaded_actors()  # World Partition: load everything we made, so the rebuild replaces it all
-    eas.destroy_actors([a for a in eas.get_all_level_actors() if _ours(a)])
 
-    b = _Builder()
+    marker, version, recorded = _state(eas)  # the marker is always loaded
+    if only is not None:
+        steps = [s for s in STEP_ORDER if s in only]
+    elif force:
+        steps = [s for s in STEP_ORDER if s != "landmarks"]
+        if recorded.get("landmarks", 0) != STEP_VERSIONS["landmarks"]:
+            steps = list(STEP_ORDER)  # never built: place them
+    else:
+        steps = outdated_steps(recorded)
+    if "streaming" not in steps and streaming_is_right() is False:
+        steps.append("streaming")  # settings only: re-apply whenever the runtime grid is not what we want
+    landscape = _landscape(eas)
     m = manifest
     half = m["world_bounds_ue"][1]
+    b = _Builder()
 
-    dock = _dock_spots()
-
-    def materials():
+    try:  # idempotent: makes only the materials that do not exist yet
         _material_terrain()
         _layer_infos()
         _prototype_materials()
+    except Exception as exc:
+        _warn(f"could not make the world materials: {exc}")
+
+    if not steps:
+        if marker is not None and version != BUILD_VERSION:
+            _record_all(marker, recorded)
+            marker.set_actor_label(f"{MARKER_PREFIX}{BUILD_VERSION}")
+        if landscape is None:
+            _log(f"World map v{_version_of(marker)} is built; the landscape is not imported yet")
+            import_steps(manifest)
+            _save(les)
+            return
+        _finish_landscape(landscape, eas, manifest)
+        _save(les)
+        _log(f"World map is up to date (v{_version_of(marker)})")
+        if streaming_is_right() is False:
+            streaming_manual_steps()
+        return
+
+    kept = [STEP_TITLES[s] for s in STEP_ORDER if s not in steps]
+    _log(f"building World map (v{version} -> v{BUILD_VERSION}): {', '.join(STEP_TITLES[s] for s in steps)}"
+         + (f"; keeping {', '.join(kept)}" if kept else ""))
+    if marker is None:
+        marker = _make_marker(b)
+    elif recorded and not any(t.startswith(STEP_VER_TAG) for t in _tags(marker)):
+        _record_all(marker, recorded)  # migrate a v3/v4 marker to per-step records
+    dock = _dock_spots()
+    descs = _actor_descs()  # labels only; nothing is loaded until a step needs its own actors
 
     def sky():
         sun = b.spawn(unreal.DirectionalLight, "Sun", (0, 0, 100000), rot=(0, -14, 215))  # golden hour
@@ -1251,7 +1587,7 @@ def build(force=False, startup=False):
         actor.set_actor_scale3d(unreal.Vector(scale, scale, 1.0))
         actor.set_actor_label(LABEL_PREFIX + "Sea")
         actor.set_folder_path("Water")
-        _set(actor, "tags", [unreal.Name(TAG)])
+        b.tag(actor)
         _set(actor, "is_spatially_loaded", False, quiet=True)  # it follows the camera everywhere
         comp = actor.get_component_by_class(unreal.StaticMeshComponent)
         comp.set_material(0, _make_sea_material())
@@ -1315,7 +1651,7 @@ def build(force=False, startup=False):
         b.spawn(unreal.PlayerStart, "PlayerStart_LanternPier", (x + dx, y + dy, z + STAND_Z), rot=(0, 0, -90.0),
                 folder="Gameplay")
 
-    def boat_and_dock():
+    def boat_dock():
         # The boat, the step-ashore point, the mooring and the dock lamp, at the T37 markers on Lantern Pier.
         (sx, sy, sz), _ = dock["T37_StepAshore"]
         step = (sx, sy, sz + STAND_Z)
@@ -1324,7 +1660,8 @@ def build(force=False, startup=False):
 
         boat_cls = getattr(unreal, "LyrisBoat", None)
         if boat_cls is None:
-            _warn("LyrisBoat class not found; build the C++ module and reopen the editor, then build(force=True)")
+            _warn("LyrisBoat class not found; build the C++ module and reopen the editor, then "
+                  "w.build(only=['boat_dock'])")
         else:
             (bx, by, bz), byaw = dock["T37_BoatStart"]
             boat = b.spawn(boat_cls, "Boat", (bx, by, bz + BOAT_FLOAT_Z), rot=(0, 0, byaw), folder="Gameplay/Boat")
@@ -1353,46 +1690,94 @@ def build(force=False, startup=False):
         _streaming_settings()
 
     def landmarks():
-        # Canon landmarks and new island lamps from Art/World/landmarks.json (T36). Placed after the
-        # landscape exists they trace onto it; before, they use the baked heights.
+        # Canon landmarks and new island lamps from Art/World/landmarks.json (T36), replaced one landmark at a
+        # time (only that landmark's actors are loaded and removed). Placed after the landscape exists they
+        # trace onto it. To redo them on purpose (e.g. to snap onto a new landscape): lyris_build_landmarks.rebuild()
         import importlib
         import lyris_build_landmarks
         importlib.reload(lyris_build_landmarks)
-        lyris_build_landmarks.build_landmarks(m)
+        if lyris_build_landmarks.load_landmarks() is None:
+            raise RuntimeError(f"{lyris_build_landmarks.LANDMARKS_JSON} is missing")
+        if lyris_build_landmarks.place(m, descs=descs) is None:
+            raise _Cancelled("cancelled while placing landmarks")
+        tag_dock_lamp(eas)  # the dock lamp is a landmark part; keep its gameplay tag
 
-    for name, fn in [("materials", materials), ("sky and lighting", sky), ("sea", sea), ("water zone", water_zone),
-                     ("lakes", lakes), ("rivers", rivers), ("world bounds", bounds), ("landmarks", landmarks),
-                     ("player start", player_start), ("boat and dock", boat_and_dock),
-                     ("streaming settings", streaming)]:
-        _step(name, fn)
+    fns = {"sky": sky, "sea": sea, "water_zone": water_zone, "lakes": lakes, "rivers": rivers, "bounds": bounds,
+           "landmarks": landmarks, "player_start": player_start, "boat_dock": boat_dock, "streaming": streaming}
 
-    marker = b.spawn(unreal.Note, "Marker", (0, 0, 50000), folder="Gameplay")
-    marker.set_actor_label(f"{MARKER_PREFIX}{BUILD_VERSION}")  # tagged, so a rebuild removes it
-    _set(marker, "text", "Built by Content/Python/lyris_build_world.py from Art/World. Edits to actors "
-                         "in this build are lost on the next rebuild; the landscape is kept.", quiet=True)
+    if version and version < 3:
+        try:
+            _clear_leftovers(eas, descs)
+        except _Cancelled as exc:
+            _warn(f"{exc}; nothing else was changed. Run w.build() again to continue")
+            return
 
+    done, failed = [], []
+    for step in steps:
+        title = STEP_TITLES[step]
+        b.step = step
+        try:
+            if step != "landmarks":  # landmarks replace themselves one landmark at a time
+                _clear_step(step, eas, descs)
+            fns[step]()
+        except _Cancelled as exc:
+            _warn(f"{exc}. Stopped; finished steps are saved. Run w.build() again to continue")
+            break
+        except Exception as exc:  # keep going so one failure doesn't stop the rest
+            _warn(f"could not build {title}: {exc}")
+            failed.append(step)
+            continue
+        _record_step(marker, step)
+        recorded[step] = STEP_VERSIONS[step]
+        done.append(step)
+        _save(les)  # each finished step is kept even if a later one is cancelled or the editor is closed
+        _log(f"built {title}")
+    b.step = None
+
+    left = outdated_steps(recorded)
+    if not left:
+        marker.set_actor_label(f"{MARKER_PREFIX}{BUILD_VERSION}")
     if landscape is not None:
         _finish_landscape(landscape, eas, manifest)
-    les.save_current_level()
+    _save(les)
     unreal.EditorAssetLibrary.save_directory("/Game/Lyris", only_if_is_dirty=True, recursive=True)
-    _log(f"World map v{BUILD_VERSION} ready at {MAP_PATH}")
+    if "streaming" in left or streaming_is_right() is False:
+        streaming_manual_steps()
+    if left:
+        _warn(f"World map not finished: {', '.join(STEP_TITLES[s] for s in left)} still to do"
+              + (f" ({', '.join(STEP_TITLES[s] for s in failed)} failed: see the warnings above)" if failed else "")
+              + ". Run w.build() again")
+    else:
+        _log(f"World map v{BUILD_VERSION} ready at {MAP_PATH} (rebuilt: {', '.join(STEP_TITLES[s] for s in done)})")
     if landscape is None:
         import_steps(manifest)
 
 
+def tag_dock_lamp(eas=None):
+    """Tags the T36 dock lamp blockout (landmark parts at T37_DockLamp) as LyrisDockLamp and lights it like the
+    Harbor's dock lamp. Loads only those parts. Returns how many parts it found."""
+    eas = eas or unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+
+    def is_lamp(label):
+        return label.startswith(LANDMARK_LABEL_PREFIX) and "T37_DockLamp" in label
+    load_streamed(is_lamp, "dock lamp")
+    parts = [a for a in eas.get_all_level_actors() if is_lamp(_label(a))]
+    for actor in parts:
+        _add_tags(actor, TAG_DOCK_LAMP)
+        light = actor.get_component_by_class(unreal.PointLightComponent)
+        if light:
+            light.set_editor_property("light_color", _srgb_color(MOONGLASS))
+            light.set_editor_property("intensity", DOCK_LAMP_LIGHT[0])
+            light.set_editor_property("attenuation_radius", DOCK_LAMP_LIGHT[1])
+    if parts:
+        _log(f"dock lamp: {len(parts)} parts on Lantern Pier tagged {TAG_DOCK_LAMP}")
+    return len(parts)
+
+
 def _dock_lamp(b, eas, spot):
     """The dock lamp: the T36 blockout at T37_DockLamp, tagged and lit like the Harbor's dock lamp. If the
-    landmarks did not place it, builds the Harbor's lamp there instead."""
-    parts = [a for a in eas.get_all_level_actors() if "T37_DockLamp" in a.get_actor_label()]
-    if parts:
-        for actor in parts:
-            _add_tags(actor, TAG_DOCK_LAMP)
-            light = actor.get_component_by_class(unreal.PointLightComponent)
-            if light:
-                light.set_editor_property("light_color", _srgb_color(MOONGLASS))
-                light.set_editor_property("intensity", DOCK_LAMP_LIGHT[0])
-                light.set_editor_property("attenuation_radius", DOCK_LAMP_LIGHT[1])
-        _log(f"dock lamp: {len(parts)} parts on Lantern Pier tagged {TAG_DOCK_LAMP}")
+    landmarks did not place it, builds the Harbor's lamp there instead (owned by the boat and dock step)."""
+    if tag_dock_lamp(eas):
         return
     (x, y, z), _ = spot
     mats = _prototype_materials()
@@ -1407,7 +1792,7 @@ def _dock_lamp(b, eas, spot):
         actor.set_actor_scale3d(unreal.Vector(*scale))
         actor.set_actor_label(f"{LABEL_PREFIX}DockLamp_{name}")
         actor.set_folder_path("Gameplay/Dock/Lamp")
-        _set(actor, "tags", [unreal.Name(TAG), unreal.Name(TAG_DOCK_LAMP)])
+        b.tag(actor, TAG_DOCK_LAMP)
         _set(actor, "is_spatially_loaded", False, quiet=True)
         comp = actor.get_component_by_class(unreal.StaticMeshComponent)
         comp.set_material(0, mats[mat])
@@ -1444,37 +1829,174 @@ def _finish_landscape(landscape, eas, manifest):
          "(Build > Build HLODs after any terrain change)")
 
 
-def _streaming_settings():
-    """Best-effort World Partition settings; anything not exposed is logged for the user."""
-    ws = _editor_world().get_world_settings()
-    wp = None
+def _get(obj, prop):
+    if obj is None:
+        return None
     try:
-        wp = ws.get_editor_property("world_partition")
+        return obj.get_editor_property(prop)
     except Exception:
-        pass
-    if wp is None:
-        _warn("World Partition object not reachable from Python; streaming stays at engine defaults")
-        return
-    hashed = None
+        return None
+
+
+def _world_partition():
     try:
-        hashed = wp.get_editor_property("runtime_hash")
+        return _get(_editor_world().get_world_settings(), "world_partition")
     except Exception:
-        pass
-    applied = False
-    if hashed is not None:
+        return None
+
+
+def _runtime_hash(wp):
+    """The map's runtime hash: WorldPartitionRuntimeSpatialHash (Grids) or, in newer maps,
+    WorldPartitionRuntimeHashSet (Runtime Partitions)."""
+    found = _get(wp, "runtime_hash")
+    if found is None:
+        for fn in ("get_runtime_hash",):
+            getter = getattr(wp, fn, None) if wp is not None else None
+            if getter:
+                try:
+                    found = getter()
+                except Exception:
+                    pass
+    return found
+
+
+def _main_partition(hashed):
+    """The main layer (URuntimePartition, e.g. RuntimePartitionLHGrid) of a hash set's first partition."""
+    parts = _get(hashed, "runtime_partitions")
+    if not parts:
+        return None, None
+    return parts, _get(parts[0], "main_layer")
+
+
+def read_runtime_grid():
+    """(kind, cell size cm, loading range cm) of the main runtime grid, or None if Python cannot see it."""
+    hashed = _runtime_hash(_world_partition())
+    if hashed is None:
+        return None
+    grids = _get(hashed, "grids")
+    if grids:
+        cell, rng = _get(grids[0], "cell_size"), _get(grids[0], "loading_range")
+        if cell is not None and rng is not None:
+            return "Grids", float(cell), float(rng)
+    _parts, layer = _main_partition(hashed)
+    if layer is not None:
+        cell, rng = _get(layer, "cell_size"), _get(layer, "loading_range")
+        if rng is not None:
+            return "Runtime Partitions", float(cell if cell is not None else -1), float(rng)
+    return None
+
+
+def streaming_is_right():
+    got = read_runtime_grid()
+    if got is None:
+        return None  # unknown
+    _kind, cell, rng = got
+    return abs(cell - WP_CELL_M * 100) < 1 and abs(rng - WP_LOADING_RANGE_M * 100) < 1
+
+
+def _set_number(obj, prop, value):
+    for v in (int(value), float(value)):
+        if _set(obj, prop, v, quiet=True):
+            return True
+    return False
+
+
+def _apply_runtime_grid():
+    """Tries every way UE 5.8 Python might reach the main runtime grid. Returns True when it was set."""
+    cell, rng = WP_CELL_M * 100, WP_LOADING_RANGE_M * 100
+    wp = _world_partition()
+    hashed = _runtime_hash(wp)
+    if hashed is None:
+        _warn("streaming: the World Partition runtime hash is not reachable from Python")
+        return False
+    kind = hashed.get_class().get_name()
+    # 1. WorldPartitionRuntimeSpatialHash: Grids[0] (a struct array: edit a copy, write the array back).
+    grids = _get(hashed, "grids")
+    if grids:
         try:
-            grids = hashed.get_editor_property("grids")  # WorldPartitionRuntimeSpatialHash
-            if grids:
-                grid = grids[0]
-                grid.set_editor_property("cell_size", WP_CELL_M * 100)
-                grid.set_editor_property("loading_range", float(WP_LOADING_RANGE_M * 100))
-                hashed.set_editor_property("grids", grids)
-                applied = True
+            grids = list(grids)
+            grid = grids[0]
+            _set_number(grid, "cell_size", cell)
+            _set_number(grid, "loading_range", rng)
+            grids[0] = grid
+            hashed.set_editor_property("grids", grids)
+        except Exception as exc:
+            _warn(f"streaming: could not write {kind}.Grids ({exc})")
+    # 2. WorldPartitionRuntimeHashSet: RuntimePartitions[0].MainLayer (an object, edited in place).
+    parts, layer = _main_partition(hashed)
+    if layer is not None:
+        ok = _set_number(layer, "cell_size", cell) & _set_number(layer, "loading_range", rng)
+        if not ok:
+            _warn(f"streaming: could not write {layer.get_class().get_name()} Cell Size / Loading Range")
+        try:
+            hashed.set_editor_property("runtime_partitions", parts)
         except Exception:
             pass
-    if applied:
+    # 3. Console 'set' on the spatial hash class (non-shipping editors): replaces the main grid by text.
+    if streaming_is_right() is not True and "SpatialHash" in kind:
+        cmd = ("set WorldPartitionRuntimeSpatialHash Grids ((GridName=\"MainGrid\",CellSize=%d,LoadingRange=%.1f,"
+               "DebugColor=(R=0.25,G=0.75,B=0.75,A=1.0)))" % (cell, rng))
+        try:
+            unreal.SystemLibrary.execute_console_command(_editor_world(), cmd)
+        except Exception as exc:
+            _warn(f"streaming: console set failed ({exc})")
+    ok = streaming_is_right()
+    if ok:
+        try:  # make sure the map package is dirty so the save keeps it
+            for obj in (hashed, wp, _editor_world().get_world_settings()):
+                if hasattr(obj, "modify"):
+                    obj.modify()
+        except Exception:
+            pass
+    return bool(ok)
+
+
+def streaming_manual_steps():
+    """Logs the by-hand fix for the runtime grid, prominently."""
+    got = read_runtime_grid()
+    now = (f" (now: {got[0]}, Cell Size {got[1]:.0f}, Loading Range {got[2]:.0f})" if got else "")
+    lines = [
+        "=" * 78,
+        "STREAMING NOT SET: in Play you will only see about 256 m around you" + now,
+        " 1. Window > World Settings. Find World Partition Setup > Runtime Settings.",
+        "    If it shows Grids:               Grids > Index [0]: Cell Size "
+        f"{WP_CELL_M * 100}, Loading Range {WP_LOADING_RANGE_M * 100}",
+        "    If it shows Runtime Partitions:  Index [0] > Main Layer: Cell Size "
+        f"{WP_CELL_M * 100}, Loading Range {WP_LOADING_RANGE_M * 100}",
+        " 2. File > Save All.",
+        " 3. Python: import lyris_build_world as w; w.streaming_done()   (records it; stops this message)",
+        " 4. Build > Build HLODs so the world beyond 1.5 km shows as low-detail proxies (Art/World/README.md).",
+        "=" * 78,
+    ]
+    for line in lines:
+        _warn(line)
+
+
+def streaming_done():
+    """Call after setting the runtime grid by hand: checks it if Python can, then records the streaming step."""
+    eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    ok = streaming_is_right()
+    if ok is False:
+        streaming_manual_steps()
+        return
+    marker = _marker(eas)
+    if marker is None:
+        _warn("no build marker in this map: run w.build() first")
+        return
+    _record_step(marker, "streaming")
+    recorded = _recorded_steps(marker)
+    if not outdated_steps(recorded):
+        marker.set_actor_label(f"{MARKER_PREFIX}{BUILD_VERSION}")
+    _save(unreal.get_editor_subsystem(unreal.LevelEditorSubsystem))
+    _log("streaming step recorded" + ("" if ok else " (Python cannot read the grid here, so it was taken on trust)"))
+
+
+def _streaming_settings():
+    """The main runtime grid: WP_CELL_M cells loaded to WP_LOADING_RANGE_M, HLODs beyond. Raises when it could
+    not be set, so the step is not recorded and every w.build() prints the manual steps until it is right."""
+    if _world_partition() is None:
+        raise RuntimeError("World Partition object not reachable from Python")
+    if streaming_is_right() is True or _apply_runtime_grid():
         _log(f"runtime grid: {WP_CELL_M} m cells, loaded to {WP_LOADING_RANGE_M} m; HLOD beyond")
-    else:
-        _log("World Settings > World Partition Setup > Runtime Settings: set the main grid to "
-             f"Cell Size {WP_CELL_M * 100} and Loading Range {WP_LOADING_RANGE_M * 100} by hand "
-             "(not reachable from Python in this engine version)")
+        return
+    raise RuntimeError("the runtime grid could not be set from Python; see STREAMING NOT SET below")
