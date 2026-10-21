@@ -2,10 +2,9 @@
 //
 // The appearance types, catalog, library, save game and component are written by the Player lane
 // (T23, Source/Lyris/Player/Appearance/) against the shared creator contract. The UI was written
-// at the same time without seeing that code, so every assumption about names that the contract
-// does not spell out exactly (header paths of the library and save game, the save game's member
-// name, how lookups return their results) is kept in this file. If T23 landed with a different
-// name, fix it here and the rest of the creator follows.
+// at the same time, so every name the UI relies on beyond the contract is kept in this file. The lead
+// checked them against T23 (PR #26). If the Player lane renames something later, fix it here and the
+// rest of the creator follows.
 
 #pragma once
 
@@ -15,20 +14,20 @@
 #include "Player/Appearance/LyrisAppearanceTypes.h"
 #include "Player/Appearance/LyrisAppearanceCatalog.h"
 #include "Player/Appearance/LyrisAppearanceComponent.h"
-// ASSUMPTION: the contract names these classes but not their headers.
 #include "Player/Appearance/LyrisAppearanceLibrary.h"
 #include "Player/Appearance/LyrisCharacterSaveGame.h"
 
 namespace LyrisCreator
 {
-	/** Save slot from the contract. */
-	inline const TCHAR* SaveSlotName() { return TEXT("LyrisCharacter_0"); }
-	inline int32 SaveUserIndex() { return 0; }
+	/** Save slot and user index, owned by the save game class (T23). */
+	inline const TCHAR* SaveSlotName() { return ULyrisCharacterSaveGame::SlotName; }
+	inline int32 SaveUserIndex() { return ULyrisCharacterSaveGame::UserIndex; }
 
 	/** ASSUMPTION: the save game keeps its FLyrisCharacterProfile in a member called Profile. */
 	inline FLyrisCharacterProfile& SaveProfile(ULyrisCharacterSaveGame& Save) { return Save.Profile; }
 
-	/** The catalog the component uses (contract: Catalog property, falls back to GetDefault()). */
+	/** The catalog the component uses (its Catalog property, else the default catalog).
+	 *  T23 renames GetDefault() to GetDefaultCatalog() and keeps a deprecated forwarder. */
 	inline ULyrisAppearanceCatalog* CatalogFor(const ULyrisAppearanceComponent* Component)
 	{
 		// Works whether Catalog is a TObjectPtr or a raw pointer.
@@ -39,7 +38,25 @@ namespace LyrisCreator
 				return Assigned;
 			}
 		}
-		return ULyrisAppearanceCatalog::GetDefault();
+		return ULyrisAppearanceCatalog::GetDefaultCatalog();
+	}
+
+	/** The part a slot shows: the look's choice, else the slot's DefaultPart (T23). */
+	inline FName EffectivePart(const ULyrisAppearanceCatalog* Catalog, const FLyrisAppearance& Look, FName Slot)
+	{
+		return ULyrisAppearanceLibrary::GetEffectivePart(Catalog, Look, Slot);
+	}
+
+	/** Named presets per People (T23, spec 9.8). */
+	inline int32 PresetCount() { return ULyrisAppearanceLibrary::GetPresetCount(); }
+	inline FLyrisAppearance MakePreset(FName People, int32 Index) { return ULyrisAppearanceLibrary::MakePreset(People, Index); }
+	inline FText PresetName(FName People, int32 Index) { return ULyrisAppearanceLibrary::GetPresetName(People, Index); }
+
+	/** Section a colour channel is shown in, from the catalog (None when it has no entry). */
+	inline FName ChannelSection(const ULyrisAppearanceCatalog& Catalog, FName Channel)
+	{
+		const FName* Found = Catalog.ChannelSections.Find(Channel);
+		return Found ? *Found : NAME_None;
 	}
 
 	// The contract does not say whether GetSlidersIn / GetPartsForSlot return defs by value or by

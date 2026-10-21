@@ -317,37 +317,6 @@ namespace LyrisCreatorData
 		return List;
 	}
 
-	const TArray<FLyrisCreatorChannelInfo>& ChannelSections()
-	{
-		static const TArray<FLyrisCreatorChannelInfo> List = {
-			{ TEXT("Skin.ToneHuman"), TEXT("Tone") }, { TEXT("Skin.ToneElf"), TEXT("Tone") }, { TEXT("Skin.ToneDeepkin"), TEXT("Tone") },
-			{ TEXT("Skin.Rosiness"), TEXT("Tone") }, { TEXT("Skin.Freckles"), TEXT("Details") },
-			{ TEXT("Skin.Markings"), TEXT("Markings") }, { TEXT("Skin.MarkingShimmer"), TEXT("Markings") },
-			{ TEXT("Eyes.IrisL"), TEXT("Colour") }, { TEXT("Eyes.IrisR"), TEXT("Colour") },
-			{ TEXT("Eyes.Sclera"), TEXT("Colour") }, { TEXT("Eyes.ScleraDeepkin"), TEXT("Colour") },
-			{ TEXT("Eyes.Glow"), TEXT("Detail") }, { TEXT("Eyes.Shine"), TEXT("Detail") },
-			{ TEXT("Hair.Root"), TEXT("Colour") }, { TEXT("Hair.Tip"), TEXT("Colour") }, { TEXT("Hair.Highlight"), TEXT("Colour") },
-			{ TEXT("Hair.Brows"), TEXT("Brows") }, { TEXT("Hair.FacialHair"), TEXT("FacialHair") }, { TEXT("Hair.Accessory"), TEXT("Accessories") },
-			{ TEXT("Makeup.Eyeshadow"), TEXT("Eyes") }, { TEXT("Makeup.Eyeliner"), TEXT("Eyes") }, { TEXT("Makeup.Lips"), TEXT("Lips") },
-			{ TEXT("Makeup.Blush"), TEXT("Cheeks") }, { TEXT("Makeup.FacePaint"), TEXT("FacePaint") },
-			{ TEXT("Outfit.Primary"), TEXT("Colour") }, { TEXT("Outfit.Secondary"), TEXT("Colour") }, { TEXT("Outfit.Trim"), TEXT("Colour") },
-			{ TEXT("Outfit.Layer"), TEXT("Layer") },
-		};
-		return List;
-	}
-
-	FName SectionForChannel(FName Channel)
-	{
-		for (const FLyrisCreatorChannelInfo& Info : ChannelSections())
-		{
-			if (Info.Channel == Channel)
-			{
-				return Info.Section;
-			}
-		}
-		return NAME_None;
-	}
-
 	static FLyrisCreatorScalarInfo Scalar(const TCHAR* Key, const TCHAR* Category, const TCHAR* Section, const FText& Name, const FText& Tip,
 		float Min, float Max, float Default, bool bToggle = false, TArray<FName> People = {})
 	{
@@ -403,30 +372,21 @@ namespace LyrisCreatorData
 		return Scalars().FindByPredicate([Key](const FLyrisCreatorScalarInfo& S) { return S.Key == Key; });
 	}
 
-	const TArray<FText>& PresetNames(FName People)
+	FName ExpressionPreviewId(FName ExpressionPartOrId)
 	{
-		static const TArray<FText> Human = {
-			LOCTEXT("PrH1", "Harbor Hand"), LOCTEXT("PrH2", "Lamplighter"), LOCTEXT("PrH3", "Old Salt"),
-			LOCTEXT("PrH4", "Orchard Keeper"), LOCTEXT("PrH5", "Clerk of Moonharbor"), LOCTEXT("PrH6", "Drover") };
-		static const TArray<FText> Elf = {
-			LOCTEXT("PrE1", "Moonwatcher"), LOCTEXT("PrE2", "Star Archivist"), LOCTEXT("PrE3", "Night Gardener"),
-			LOCTEXT("PrE4", "Pale Sail"), LOCTEXT("PrE5", "Lantern Bearer"), LOCTEXT("PrE6", "Dusk Wanderer") };
-		static const TArray<FText> Deep = {
-			LOCTEXT("PrD1", "Tidewalker"), LOCTEXT("PrD2", "Reef Diver"), LOCTEXT("PrD3", "Hollowdeep Miner"),
-			LOCTEXT("PrD4", "Kelp Singer"), LOCTEXT("PrD5", "Bay Keeper"), LOCTEXT("PrD6", "Storm Pilot") };
-		if (People == People_MoonlitElf)
+		// Catalog part ids are "<Slot>.<Name>" ("Expression.Calm"); the stage wants just "Calm".
+		const FString Id = ExpressionPartOrId.ToString();
+		int32 Dot = INDEX_NONE;
+		if (Id.FindChar(TEXT('.'), Dot))
 		{
-			return Elf;
+			return FName(*Id.Mid(Dot + 1));
 		}
-		if (People == People_Deepkin)
-		{
-			return Deep;
-		}
-		return Human;
+		return ExpressionPartOrId;
 	}
 
 	const TArray<TPair<FName, FText>>& Expressions()
 	{
+		// Preview only: cycling these never changes the saved resting expression (the Expression part).
 		static const TArray<TPair<FName, FText>> List = {
 			Opt(TEXT("Calm"), LOCTEXT("ExCalm", "Calm")), Opt(TEXT("Bright"), LOCTEXT("ExBright", "Bright smile")),
 			Opt(TEXT("Laugh"), LOCTEXT("ExLaugh", "Laugh")), Opt(TEXT("Wry"), LOCTEXT("ExWry", "Wry")),

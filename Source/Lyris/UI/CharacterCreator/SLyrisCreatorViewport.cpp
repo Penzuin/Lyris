@@ -95,7 +95,8 @@ void SLyrisCreatorViewport::ProjectAnchors(const FGeometry& Geometry)
 		Projected.Region = Anchor.Key;
 		Projected.Local = ViewportPos;
 	}
-	FaceCentre = Count > 0 ? Sum / Count : Geometry.GetLocalSize() * 0.5f;
+	// GetLocalSize() is FVector2f in UE5; convert so both ternary arms are FVector2D.
+	FaceCentre = Count > 0 ? Sum / Count : FVector2D(Geometry.GetLocalSize()) * 0.5;
 }
 
 void SLyrisCreatorViewport::UpdateHover()

@@ -89,13 +89,20 @@ void ALyrisCreatorStage::BuildDefaultPresets()
 	Shots.Add(ELyrisCreatorShot::Full,    MakeShot(TEXT("pelvis"),   FVector(0.f, 0.f, -5.f), 260.f,  4.f, 42.f,   0.f));
 	Shots.Add(ELyrisCreatorShot::Upper,   MakeShot(TEXT("spine_03"), FVector(0.f, 0.f, 10.f), 130.f,  5.f, 35.f,  45.f));
 	Shots.Add(ELyrisCreatorShot::Face,    MakeShot(TEXT("head"),     FVector(4.f, 0.f,  7.f),  55.f, -5.f, 30.f,  72.f));
-	Shots.Add(ELyrisCreatorShot::Eyes,    MakeShot(TEXT("head"),     FVector(9.f, 0.f, 10.f),  25.f,  0.f, 30.f,  75.f));
+	Shots.Add(ELyrisCreatorShot::Eyes,    MakeShot(TEXT("head"),     FVector(7.f, 0.f,  9.f),  25.f,  0.f, 30.f,  75.f)); // eye line (T25 head)
 	Shots.Add(ELyrisCreatorShot::Lantern, MakeShot(TEXT("spine_04"), FVector(15.f, 0.f, 5.f),  80.f,  6.f, 35.f,  40.f));
 
 	// ------------------------------------------------------------------ Face sculpt anchors (spec 9.1)
-	// Rough positions on the UE5 mannequin head, offset from the head bone in the character's frame
-	// (X forward, Y = character's right, so the character's left is negative Y). Tune per mesh on the
-	// actor; T25's stylized head will want its own numbers.
+	// Points on the face surface, offset from the head bone in the character's frame (X forward,
+	// Y = character's right, so the character's left is negative Y, Z up), in cm.
+	//
+	// Measured from the T25 base head (Art/Character/char_shapes.py and char_rig.py): head bone at
+	// (0, 0.6, 149.5) in asset space, where the asset's front is -Y and its left is +X. So
+	// forward = 0.6 - y, right = -x, up = z - 149.5; each point is pushed out to the skin surface.
+	// Sources: EYE (+-3.25, -6.15, 158.4), NOSE_TIP (0, -9.6, 154.9), MOUTH (0, -8.0, 151.75),
+	// CHIN (0, -6.6, 148.3), EAR (+-7.55, 1.0, 156.4), cheek and jaw volumes in head_sdf. The README says
+	// head bone and face sit like SKM_Manny's, so these also suit the template mannequin. All editable on
+	// the actor (Creator|Sculpt).
 	auto Anchor = [this](const TCHAR* Region, float X, float Y, float Z)
 	{
 		FLyrisSculptAnchor A;
@@ -103,20 +110,20 @@ void ALyrisCreatorStage::BuildDefaultPresets()
 		A.Offset = FVector(X, Y, Z);
 		SculptAnchors.Add(A);
 	};
-	Anchor(TEXT("Forehead"), 10.0f,  0.0f, 16.0f);
-	Anchor(TEXT("BrowL"),    11.0f, -3.4f, 12.0f);
-	Anchor(TEXT("BrowR"),    11.0f,  3.4f, 12.0f);
-	Anchor(TEXT("EyeL"),     10.0f, -3.2f,  9.5f);
-	Anchor(TEXT("EyeR"),     10.0f,  3.2f,  9.5f);
-	Anchor(TEXT("Nose"),     12.5f,  0.0f,  6.0f);
-	Anchor(TEXT("Cheeks"),    8.5f, -5.5f,  5.0f);
-	Anchor(TEXT("Cheeks"),    8.5f,  5.5f,  5.0f);
-	Anchor(TEXT("Mouth"),    10.5f,  0.0f,  1.5f);
-	Anchor(TEXT("Jaw"),       4.5f, -6.0f,  0.0f);
-	Anchor(TEXT("Jaw"),       4.5f,  6.0f,  0.0f);
-	Anchor(TEXT("Chin"),      9.5f,  0.0f, -3.0f);
-	Anchor(TEXT("EarL"),      0.0f, -8.0f,  8.0f);
-	Anchor(TEXT("EarR"),      0.0f,  8.0f,  8.0f);
+	Anchor(TEXT("Forehead"), 7.8f,  0.0f, 15.5f);
+	Anchor(TEXT("BrowL"),    7.6f, -3.3f, 12.0f);
+	Anchor(TEXT("BrowR"),    7.6f,  3.3f, 12.0f);
+	Anchor(TEXT("EyeL"),     8.0f, -3.25f, 8.9f);
+	Anchor(TEXT("EyeR"),     8.0f,  3.25f, 8.9f);
+	Anchor(TEXT("Nose"),    10.2f,  0.0f,  5.4f);
+	Anchor(TEXT("Cheeks"),   7.6f, -4.2f,  4.8f);
+	Anchor(TEXT("Cheeks"),   7.6f,  4.2f,  4.8f);
+	Anchor(TEXT("Mouth"),    8.6f,  0.0f,  2.25f);
+	Anchor(TEXT("Jaw"),      2.8f, -6.0f,  1.5f);
+	Anchor(TEXT("Jaw"),      2.8f,  6.0f,  1.5f);
+	Anchor(TEXT("Chin"),     8.0f,  0.0f, -1.0f);
+	Anchor(TEXT("EarL"),    -0.4f, -7.8f,  6.9f);
+	Anchor(TEXT("EarR"),    -0.4f,  7.8f,  6.9f);
 
 	// ------------------------------------------------------------------ Lighting previews (spec 9.5)
 	const FLinearColor Gold      = FLinearColor(FColor::FromHex(TEXT("E3AE45")));

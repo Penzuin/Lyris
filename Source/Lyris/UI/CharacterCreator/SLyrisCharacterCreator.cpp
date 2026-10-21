@@ -378,8 +378,8 @@ float SLyrisCharacterCreator::GetScalar(FName Key) const
 
 FName SLyrisCharacterCreator::GetPart(FName Slot) const
 {
-	const FName* Found = CurrentLook().Parts.Find(Slot);
-	return Found ? *Found : NAME_None;
+	// The look's choice, or the slot's DefaultPart when the look has none, so tiles highlight what is worn.
+	return LyrisCreator::EffectivePart(Catalog(), CurrentLook(), Slot);
 }
 
 FLyrisColorPick SLyrisCharacterCreator::GetColor(FName Channel) const
@@ -472,7 +472,7 @@ void SLyrisCharacterCreator::SetPartValue(FName Slot, FName PartId)
 	{
 		if (ALyrisCreatorStage* StagePtr = Stage.Get())
 		{
-			StagePtr->PreviewExpression(PartId);
+			StagePtr->PreviewExpression(LyrisCreatorData::ExpressionPreviewId(PartId));
 		}
 	}
 }
@@ -626,32 +626,20 @@ void SLyrisCharacterCreator::Randomise()
 
 void SLyrisCharacterCreator::ApplyPreset(int32 Index, FName People)
 {
-	if (!Catalog())
-	{
-		return;
-	}
-	// TODO(Player T23): the spec (9.8) wants six hand-made presets per People. The contract has no
-	// preset API yet, so until there is one a preset is a calm, seeded roll for that People: the same
-	// name always gives the same face.
-	FLyrisAppearance Look;
-	Look.People = People.IsNone() ? CurrentPeople() : People;
-	Look.Frame = CurrentLook().Frame;
-	FRandomStream Stream(static_cast<int32>(GetTypeHash(Look.People)) ^ (Index * 7919 + 17));
-	LyrisCreator::Randomize(Catalog(), Look, Stream, TSet<FName>(), 0.2f);
-	Look.People = People.IsNone() ? CurrentPeople() : People;
+	// The six named presets per People come from the Player lane (spec 9.8).
+	const FName PresetPeople = People.IsNone() ? CurrentPeople() : People;
+	FLyrisAppearance Look = LyrisCreator::MakePreset(PresetPeople, Index);
+	Look.People = PresetPeople;
 
-	// Keep the outfit the player chose (or their path's), presets are about the face and body.
+	// Keep the frame and the outfit the player chose (or their path's); presets are about face and body.
+	Look.Frame = CurrentLook().Frame;
 	if (const FName* Outfit = CurrentLook().Parts.Find(LyrisCreatorData::Slot_Outfit))
 	{
 		Look.Parts.Add(LyrisCreatorData::Slot_Outfit, *Outfit);
 	}
 	ApplyWholeLook(Look, true);
 
-	const TArray<FText>& Names = LyrisCreatorData::PresetNames(Look.People);
-	if (Names.IsValidIndex(Index))
-	{
-		ShowStatus(FText::Format(LOCTEXT("PresetLoaded", "Preset: {0}"), Names[Index]));
-	}
+	ShowStatus(FText::Format(LOCTEXT("PresetLoaded", "Preset: {0}"), LyrisCreator::PresetName(PresetPeople, Index)));
 }
 
 void SLyrisCharacterCreator::ResetSection()
@@ -678,7 +666,7 @@ void SLyrisCharacterCreator::ResetSection()
 	}
 	for (const FLyrisColorChannelDef& Channel : Catalog()->ColorChannels)
 	{
-		if (Channel.Category == Category && LyrisCreatorData::SectionForChannel(Channel.Id) == Section)
+		if (Channel.Category == Category && LyrisCreator::ChannelSection(*Catalog(), Channel.Id) == Section)
 		{
 			FLyrisColorPick Pick = GetColor(Channel.Id);
 			Pick.HueShift = 0.f;
@@ -811,6 +799,8 @@ void SLyrisCharacterCreator::SetLighting(ELyrisCreatorLighting InLighting)
 
 void SLyrisCharacterCreator::CycleExpression()
 {
+	// Preview only (bare ids like "Laugh"): the look's resting Expression part is not touched, so
+	// preview-only expressions (Laugh, Surprised, Sleepy) never reach the save.
 	const TArray<TPair<FName, FText>>& List = LyrisCreatorData::Expressions();
 	ExpressionIndex = (ExpressionIndex + 1) % List.Num();
 	if (ALyrisCreatorStage* StagePtr = Stage.Get())
@@ -1628,12 +1618,12 @@ TSharedRef<SWidget> SLyrisCharacterCreator::BuildPresetRow()
 {
 	const FLyrisCreatorStyle& Style = FLyrisCreatorStyle::Get();
 	TSharedRef<SUniformGridPanel> Grid = SNew(SUniformGridPanel).SlotPadding(FMargin(3.f));
-	const TArray<FText>& Names = LyrisCreatorData::PresetNames(CurrentPeople());
-	for (int32 Index = 0; Index < Names.Num(); ++Index)
+	const FName People = CurrentPeople();
+	for (int32 Index = 0; Index < LyrisCreator::PresetCount(); ++Index)
 	{
 		Grid->AddSlot(Index % Style.TileColumns, Index / Style.TileColumns)
 		[
-			BuildTile(Names[Index], []() { return false; }, [this, Index]() { ApplyPreset(Index); },
+			BuildTile(LyrisCreator::PresetName(People, Index), []() { return false; }, [this, Index]() { ApplyPreset(Index); },
 				LOCTEXT("PresetTip", "Load this ready-made look (Ctrl+Z to undo)"))
 		];
 	}
@@ -1735,7 +1725,7 @@ TSharedRef<SWidget> SLyrisCharacterCreator::BuildAppearanceSection()
 			{
 				continue;
 			}
-			FName ChannelSection = LyrisCreatorData::SectionForChannel(Channel.Id);
+			FName ChannelSection = LyrisCreator::ChannelSection(*Catalog(), Channel.Id);
 			if (ChannelSection.IsNone())
 			{
 				ChannelSection = FirstSection;

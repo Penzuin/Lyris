@@ -51,13 +51,6 @@ struct FLyrisCreatorSlotInfo
 	bool bOptional = true; // shows a "None" tile
 };
 
-/** Where a colour channel is edited (the catalog channel only knows its category). */
-struct FLyrisCreatorChannelInfo
-{
-	FName Channel;
-	FName Section;
-};
-
 /** A part scalar (FLyrisAppearance::PartScalars) shown as a slider or a toggle. */
 struct FLyrisCreatorScalarInfo
 {
@@ -114,18 +107,19 @@ namespace LyrisCreatorData
 	FText SectionName(FName Category, FName Section);
 
 	const TArray<FLyrisCreatorSlotInfo>& Slots();
-	const TArray<FLyrisCreatorChannelInfo>& ChannelSections();
-	/** Section for a channel, or None when the table does not know it. */
-	FName SectionForChannel(FName Channel);
 
 	const TArray<FLyrisCreatorScalarInfo>& Scalars();
 	const FLyrisCreatorScalarInfo* FindScalar(FName Key);
 
-	/** Preset names per People (spec 9.8, [needs OK]). */
-	const TArray<FText>& PresetNames(FName People);
-
-	/** Expression and pose previews (spec 9.6). */
+	/**
+	 * Expression previews (spec 9.6), as bare ids ("Calm", "Laugh"). The resting-expression parts in the
+	 * catalog are "Expression.<Id>"; the stage always gets the bare id (see ExpressionPreviewId).
+	 * Laugh, Surprised and Sleepy are preview-only and never stored in the look.
+	 */
 	const TArray<TPair<FName, FText>>& Expressions();
+
+	/** "Expression.Calm" -> "Calm"; a bare id is returned unchanged. */
+	FName ExpressionPreviewId(FName ExpressionPartOrId);
 	const TArray<TPair<FName, FText>>& Poses();
 
 	/** Lantern glass band (spec 5.2), used only if the catalog has no Lantern.Glass channel. */
