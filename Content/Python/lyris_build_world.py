@@ -55,7 +55,8 @@ import struct
 
 import unreal
 
-BUILD_VERSION = 6  # 6: pure landscape (landmarks hidden), player start on land, optional terrain look and
+BUILD_VERSION = 7  # 7: lakes for bake v3 wonders; single-file landscape import steps.
+                   # 6: 6: pure landscape (landmarks hidden), player start on land, optional terrain look and
                    # foliage steps (T50/T51). 5: incremental rebuilds (per-step versions below); against a v3/v4 map only the sea is new.
                    # 4: sea builds again (struct fix). 3: one sea (T19 clipmap, no Water ocean), boat, dock point,
                    # mooring and dock lamp in Moonharbor, player start on Lantern Pier (T37). 2: landmarks and new
@@ -66,7 +67,7 @@ STEP_VERSIONS = {
     "sky": 1,           # sun, sky atmosphere, sky light, sea mist fog, clouds, storybook grade
     "sea": 1,           # the T19 clipmap sea (v3 maps never got it; v4 made it but recorded no version)
     "water_zone": 1,
-    "lakes": 1,
+    "lakes": 2,         # 2: bake v3 adds 14 lakes and pools at the natural wonders (T49)
     "rivers": 1,
     "bounds": 1,        # kill Z and the invisible world-edge walls
     "landmarks": 1,     # T36 blockouts; to snap them onto a new landscape: lyris_build_landmarks.rebuild()
@@ -1322,29 +1323,22 @@ def import_steps(manifest=None):
     sx, sy, sz = m["scale"]
     cx, cy, cz = m["location_centre"]
     comps = m.get("components_x") or "?"
+    full = os.path.join(tiles, "World_Height_full.png")
     lines = [
         "LANDSCAPE IMPORT (once, by hand). The map is open; do this in it:",
+        " 0. First, in a terminal at the project folder:  python Art/World/stitch_heightmap.py",
+        "    (one 16384 x 16384 heightmap: UE 5.8's tiled World Partition import repeats the first tile everywhere)",
         " 1. Selection Mode dropdown > Landscape. Manage tab > New > Import from File.",
-        f" 2. Heightmap File: {os.path.join(tiles, m['first_heightmap'])}  (answer Yes to 'tiled image').",
-        "    Leave Flip Y Axis OFF.",
-        f" 3. Material: {MAT_DIR}/M_LyrisWorldTerrain_v{TERRAIN_MAT_VERSION}",
-        " 4. Layers (one row each): pick the layer info from " + LAYER_INFO_DIR
-        + " (or press + > Weight-Blended), then its Weightmap File:",
-    ]
-    for layer in m["layers"]:
-        lines.append(f"      {layer['name']:9s} {os.path.join(tiles, layer['first'])}")
-    lines += [
-        f" 5. Location X {cx:.0f}  Y {cy:.0f}  Z {cz:.0f}   Rotation 0 0 0",
+        f" 2. Heightmap File: {full}  (answer NO if asked about a tiled image). Leave Flip Y Axis OFF.",
+        " 3. Material: leave it; no paint layers are needed (the terrain look reads the biome maps).",
+        f" 4. Location X {cx:.0f}  Y {cy:.0f}  Z {cz:.0f}   Rotation 0 0 0",
         f"    Scale X {sx:.4f}  Y {sy:.4f}  Z {sz:.1f}",
-        f" 6. Section Size 127x127 Quads, Sections Per Component 1x1, Number of Components {comps} x {comps}",
+        f" 5. Section Size 127x127 Quads, Sections Per Component 1x1, Number of Components {comps} x {comps}",
         f"    (Overall Resolution {m['total_resolution']} x {m['total_resolution']}).",
-        f" 7. World Partition Grid Size {WP_LANDSCAPE_GRID}. Enable Edit Layers ON. Press Import (takes minutes).",
-        " 8. Python: import lyris_build_world as w; w.build()   (applies material and settings, saves)",
-        " 9. Build > Build HLODs, then Build > Build Minimap.",
-        "If Import stays greyed out with 'Weightmap import resolution isn't same as Heightmap' (UE-241268):",
-        "    untick each weightmap, untick the heightmap, tick the weightmaps again, then the heightmap.",
-        "If the result shows one tile repeated (reported for 5.7+ World Partition imports): import into a",
-        "    new Basic (non World Partition) level instead, then Tools > Convert Level to World Partition.",
+        f" 6. World Partition Grid Size {WP_LANDSCAPE_GRID}. Press Import (about 25 minutes).",
+        " 7. Python: import lyris_world_terrain as t; t.build(); t.apply()",
+        "    then: import lyris_world_foliage as f; f.build()",
+        " 8. Build > Build HLODs.",
     ]
     for line in lines:
         _log(line)
