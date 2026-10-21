@@ -55,7 +55,8 @@ import struct
 
 import unreal
 
-BUILD_VERSION = 5  # 5: incremental rebuilds (per-step versions below); against a v3/v4 map only the sea is new.
+BUILD_VERSION = 6  # 6: pure landscape (landmarks hidden), player start on land, optional terrain look and
+                   # foliage steps (T50/T51). 5: incremental rebuilds (per-step versions below); against a v3/v4 map only the sea is new.
                    # 4: sea builds again (struct fix). 3: one sea (T19 clipmap, no Water ocean), boat, dock point,
                    # mooring and dock lamp in Moonharbor, player start on Lantern Pier (T37). 2: landmarks and new
                    # island lamps (T36).
@@ -69,21 +70,30 @@ STEP_VERSIONS = {
     "rivers": 1,
     "bounds": 1,        # kill Z and the invisible world-edge walls
     "landmarks": 1,     # T36 blockouts; to snap them onto a new landscape: lyris_build_landmarks.rebuild()
-    "player_start": 1,
-    "boat_dock": 1,     # boat, dock point, mooring, dock lamp tags (after landmarks: the lamp is a landmark part)
+    "player_start": 2,  # 2: on land at the Moonharbor spawn while landmarks are hidden (pier is a landmark)
+    "boat_dock": 1,
+    "landmark_visibility": 1,  # applies LANDMARKS_VISIBLE (hide/show the blockouts; never deletes them)
+    "terrain_look": 1,  # T50 lyris_world_terrain (material in the starter-island style), if that module exists
+    "foliage": 1,       # T51 lyris_world_foliage (trees, bushes, grass), if that module exists     # boat, dock point, mooring, dock lamp tags (after landmarks: the lamp is a landmark part)
     "streaming": 1,     # World Partition runtime grid (not recorded until it is really set)
 }
 STEP_ORDER = ["sky", "sea", "water_zone", "lakes", "rivers", "bounds", "landmarks", "player_start", "boat_dock",
-              "streaming"]
+              "landmark_visibility", "terrain_look", "foliage", "streaming"]
 STEP_TITLES = {"sky": "sky and lighting", "sea": "sea", "water_zone": "water zone", "lakes": "lakes",
                "rivers": "rivers", "bounds": "world bounds", "landmarks": "landmarks", "player_start": "player start",
-               "boat_dock": "boat and dock", "streaming": "streaming settings"}
+               "boat_dock": "boat and dock", "landmark_visibility": "landmark visibility",
+               "terrain_look": "terrain look", "foliage": "foliage", "streaming": "streaming settings"}
 # A map built at v3 or v4 (before per-step records): every actor step was built except the sea. Streaming is
 # settings only (no actors) and playtest 1 showed it was never applied, so it is retried as well.
-LEGACY_V3_STEPS = {s: v for s, v in STEP_VERSIONS.items() if s not in ("sea", "streaming")}
+LEGACY_V3_STEPS = {s: v for s, v in STEP_VERSIONS.items()
+                   if s in ("sky", "water_zone", "lakes", "rivers", "bounds", "landmarks", "boat_dock")}
 STEP_TAG_PREFIX = "LyrisStep_"     # on every actor a step spawns
 STEP_VER_TAG = "LyrisStepVer_"     # on the marker: LyrisStepVer_<step>_<version>
 MARKER_TAG = "LyrisWorldMarker"
+# Pure landscape for now (user decision 2026-10-20, design/DECISIONS.md): the T36 blockouts stay in the map but
+# are invisible and have no collision. Set True and bump STEP_VERSIONS["landmark_visibility"] to show them again.
+LANDMARKS_VISIBLE = False
+VISIBILITY_BATCH = 100             # landmark actors changed per batch
 DELETE_BATCH = 100                 # actors removed per destroy_actors call
 LOAD_BATCH = 200                   # streamed actors loaded per call
 TERRAIN_MAT_VERSION = 1  # versions the terrain material and its textures separately from the actors
@@ -1646,6 +1656,12 @@ def build(force=False, only=None, startup=False, check_mode=True):
     def player_start():
         # T37: on Lantern Pier's deck, a few steps shoreward of the moored boat and facing it (the Harbor map
         # started the player on its dock the same way). The server's spawn in Market Square is in the manifest.
+        if not LANDMARKS_VISIBLE:
+            # The pier is a hidden landmark: start on real ground at the server's Moonharbor spawn instead.
+            sx, sy, sz = m["spawn"]["ue"]
+            b.spawn(unreal.PlayerStart, "PlayerStart_Moonharbor", (sx, sy, sz + 150.0 + STAND_Z),
+                    rot=(0, 0, m["spawn"].get("yaw", -90.0)), folder="Gameplay")
+            return
         (x, y, z), _yaw = dock["T37_StepAshore"]
         dx, dy = PLAYER_START_FROM_STEP
         b.spawn(unreal.PlayerStart, "PlayerStart_LanternPier", (x + dx, y + dy, z + STAND_Z), rot=(0, 0, -90.0),
@@ -1702,7 +1718,28 @@ def build(force=False, only=None, startup=False, check_mode=True):
             raise _Cancelled("cancelled while placing landmarks")
         tag_dock_lamp(eas)  # the dock lamp is a landmark part; keep its gameplay tag
 
-    fns = {"sky": sky, "sea": sea, "water_zone": water_zone, "lakes": lakes, "rivers": rivers, "bounds": bounds,
+    def landmark_visibility():
+        set_landmarks_visible(LANDMARKS_VISIBLE, eas, descs)
+
+    def _optional_module(name, *calls):
+        import importlib
+        try:
+            mod = importlib.import_module(name)
+        except ImportError:
+            _log(f"{name}.py is not in this project yet; skipping (it is optional)")
+            return
+        importlib.reload(mod)
+        for call in calls:
+            getattr(mod, call)()
+
+    def terrain_look():
+        _optional_module("lyris_world_terrain", "build", "apply")
+
+    def foliage():
+        _optional_module("lyris_world_foliage", "build")
+
+    fns = {"landmark_visibility": landmark_visibility, "terrain_look": terrain_look, "foliage": foliage,
+           "sky": sky, "sea": sea, "water_zone": water_zone, "lakes": lakes, "rivers": rivers, "bounds": bounds,
            "landmarks": landmarks, "player_start": player_start, "boat_dock": boat_dock, "streaming": streaming}
 
     if version and version < 3:
@@ -1717,7 +1754,8 @@ def build(force=False, only=None, startup=False, check_mode=True):
         title = STEP_TITLES[step]
         b.step = step
         try:
-            if step != "landmarks":  # landmarks replace themselves one landmark at a time
+            if step not in ("landmarks", "landmark_visibility", "terrain_look", "foliage", "streaming"):
+                # landmarks replace themselves one landmark at a time; the others own no step actors here
                 _clear_step(step, eas, descs)
             fns[step]()
         except _Cancelled as exc:
@@ -1751,6 +1789,57 @@ def build(force=False, only=None, startup=False, check_mode=True):
         _log(f"World map v{BUILD_VERSION} ready at {MAP_PATH} (rebuilt: {', '.join(STEP_TITLES[s] for s in done)})")
     if landscape is None:
         import_steps(manifest)
+
+
+def set_landmarks_visible(visible, eas=None, descs=None):
+    """Shows or hides every T36 landmark blockout (label prefix LW_LM_), in batches behind a cancellable
+    progress bar. Hidden means: not rendered in the editor or the game and no collision. Nothing is deleted.
+    Saved with the map, so it persists. Returns how many actors were changed."""
+    eas = eas or unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    what = "landmarks (show)" if visible else "landmarks (hide)"
+    load_streamed(lambda label: label.startswith(LANDMARK_LABEL_PREFIX), what, descs)
+    actors = [a for a in eas.get_all_level_actors() if _label(a).startswith(LANDMARK_LABEL_PREFIX)]
+    n = len(actors)
+    if not n:
+        _log(f"{what}: no landmark actors found")
+        return 0
+    with unreal.ScopedSlowTask(n, f"Lyris: {what}") as task:
+        task.make_dialog(True)
+        for i in range(0, n, VISIBILITY_BATCH):
+            if task.should_cancel():
+                raise _Cancelled(f"cancelled while changing {what} ({i}/{n} done)")
+            chunk = actors[i:i + VISIBILITY_BATCH]
+            task.enter_progress_frame(len(chunk), f"{what}: {min(i + VISIBILITY_BATCH, n)}/{n}")
+            for actor in chunk:
+                if not _alive(actor):
+                    continue
+                try:
+                    actor.modify()
+                except Exception:
+                    pass
+                actor.set_actor_hidden_in_game(not visible)
+                actor.set_actor_enable_collision(visible)
+                for comp in actor.get_components_by_class(unreal.PrimitiveComponent):
+                    try:
+                        comp.modify()
+                    except Exception:
+                        pass
+                    comp.set_visibility(visible, True)
+                    comp.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS if visible
+                                               else unreal.CollisionEnabled.NO_COLLISION)
+                    if hasattr(comp, "set_cast_shadow"):
+                        comp.set_cast_shadow(visible)
+            _log(f"{what}: {min(i + VISIBILITY_BATCH, n)}/{n}")
+    return n
+
+
+def hide_landmarks():
+    """Pure landscape: hide the blockout buildings (they stay in the map). See LANDMARKS_VISIBLE."""
+    return set_landmarks_visible(False)
+
+
+def show_landmarks():
+    return set_landmarks_visible(True)
 
 
 def tag_dock_lamp(eas=None):
