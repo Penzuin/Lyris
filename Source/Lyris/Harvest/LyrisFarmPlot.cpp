@@ -533,7 +533,6 @@ FText ALyrisFarmPlot::GetInteractPrompt_Implementation(AActor* InteractingActor)
 	case ELyrisSoilState::Tilled:
 		return LOCTEXT("NeedsSeed", "Tilled soil, ready for a seed");
 	case ELyrisSoilState::Planted:
-	default:
 	{
 		const FLyrisCropStatus Status = GetCropStatus(CellIndex);
 		if (Status.SecondsToRipe < 0.f)
