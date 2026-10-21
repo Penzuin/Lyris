@@ -119,7 +119,10 @@ public:
 
 	// ---- The tide brings you home ----
 
-	/** Points that count as "near home" (island origin and the Harbor dock). Boats in the level count too. */
+	/**
+	 * Points that count as "near home". At BeginPlay these are replaced by every actor tagged TideHomeTag
+	 * (or DockPointTag); the defaults are only kept, with a warning, if the level has none. Boats count too.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Swimming|Tide")
 	TArray<FVector> HomeAnchors;
 
@@ -135,9 +138,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Swimming|Tide")
 	float FarReturnTime = 20.f;
 
-	/** Where the tide puts you (the Harbor dock, same as ALyrisBoat::DockPoint). */
+	/**
+	 * Where the tide puts you (standing height on the dock). At BeginPlay this becomes the nearest actor tagged
+	 * TideHomeTag (lyris_build_world.py puts that TargetPoint on Lantern Pier's deck at standing height),
+	 * or DockPointTag. The default is the retired Harbor map's dock and is only a last resort.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Swimming|Tide")
 	FVector ReturnPoint = FVector(3000.f, 150.f, 170.f);
+
+	/** Actor tag for tide-home points (see lyris_build_world.py). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Swimming|Tide")
+	FName TideHomeTag = TEXT("LyrisTideHome");
+
+	/** Fallback actor tag if no tide-home point is tagged: the dock's step-ashore point. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Swimming|Tide")
+	FName DockPointTag = TEXT("LyrisDockPoint");
 
 	/** Facing after the tide brings you home (world yaw, degrees). 180 looks back along the dock to the island. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Swimming|Tide")
@@ -149,6 +164,9 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+
+	/** Replaces ReturnPoint and HomeAnchors with the tagged tide-home actors in the level, if any. */
+	void FindTideHome();
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:

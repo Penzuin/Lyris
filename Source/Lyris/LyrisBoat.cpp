@@ -13,6 +13,8 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
+#include "Kismet/GameplayStatics.h"
+#include "Lyris.h"
 #include "Materials/MaterialInterface.h"
 #include "Player/LyrisSwimComponent.h"
 #include "Sailing/LyrisHullComponent.h"
@@ -326,15 +328,15 @@ void ALyrisBoat::UpdateSailing(float DeltaSeconds, APlayerController* PC)
 		Hint(4, TEXT("Thud! You ran aground. Lower the sail (S) and steer away."), FColor(232, 160, 120));
 	}
 
-	// The lamps' light only reaches so far.
+	// The lamps' light only reaches so far from home.
 	const FVector Loc = GetActorLocation();
-	const FVector2D Flat(Loc.X, Loc.Y);
+	const FVector2D Flat = FVector2D(Loc.X, Loc.Y) - WorldCenter;
 	if (Flat.Size() > WorldRadius)
 	{
-		const FVector2D Back = Flat.GetSafeNormal() * WorldRadius;
+		const FVector2D Back = WorldCenter + Flat.GetSafeNormal() * WorldRadius;
 		SetActorLocation(FVector(Back.X, Back.Y, Loc.Z));
 		Speed *= 0.5f;
-		Hint(4, TEXT("The mist beyond the lamps is too thick. Turn back toward the lighthouse."), FColor(170, 200, 230));
+		Hint(4, TEXT("The mist beyond the lamps is too thick. Turn back toward home."), FColor(170, 200, 230));
 	}
 
 	// Trim the sail across the wind and show how much is raised.
@@ -493,6 +495,37 @@ void ALyrisBoat::UpdateBowSpray()
 		// No particle asset yet: a Blueprint child (or a later Niagara system) listens here.
 		const FVector SprayLocation = Visual->GetComponentTransform().TransformPosition(SprayOffset);
 		OnBowSpray(NewIntensity, SprayLocation, GetActorForwardVector());
+	}
+}
+
+void ALyrisBoat::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// The step-ashore point is a tagged actor in the level; the property default is only a last resort.
+	TArray<AActor*> Docks;
+	UGameplayStatics::GetAllActorsWithTag(this, DockPointTag, Docks);
+	const AActor* NearestDock = nullptr;
+	float BestDistSq = TNumericLimits<float>::Max();
+	for (const AActor* Dock : Docks)
+	{
+		const float DistSq = FVector::DistSquared(GetActorLocation(), Dock->GetActorLocation());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			NearestDock = Dock;
+		}
+	}
+	if (NearestDock)
+	{
+		DockPoint = NearestDock->GetActorLocation();
+		WorldCenter = FVector2D(DockPoint.X, DockPoint.Y);
+	}
+	else
+	{
+		UE_LOG(LogLyris, Warning, TEXT("LyrisBoat %s: no actor tagged %s; using DockPoint %s and centring the mist limit on the boat's spawn."),
+			*GetName(), *DockPointTag.ToString(), *DockPoint.ToString());
+		WorldCenter = FVector2D(GetActorLocation().X, GetActorLocation().Y);
 	}
 }
 

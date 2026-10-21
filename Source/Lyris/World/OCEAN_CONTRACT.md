@@ -5,7 +5,7 @@ All three tasks code against this. Do not change names or the formula without te
 ## C++ (World lane, T17) — Source/Lyris/World/
 - `ULyrisOceanSettings : UDeveloperSettings` — Project Settings > Game > "Lyris Ocean", Config=Game, DefaultConfig. Mirrors the style of `ULyrisWindSettings` on branch lane/sailing-T5-world-wind.
   Fields: SeaLevel (0), TimeScale (1), Waves[4] {DirectionYawDeg, WavelengthCm, AmplitudeCm, Steepness 0..1},
-  CalmAmplitudeScale (0.25), HomeCalmZones[] {FVector2D Center, Radius, Falloff} (default one zone at 0,0 radius 6000 falloff 4000),
+  CalmAmplitudeScale (0.25), HomeCalmZones[] {FVector2D Center, Radius, Falloff} (default one zone at Moonharbor bay -20000,-266000 radius 55000 falloff 40000, as `Config/DefaultGame.ini` sets it; T37),
   SeaParameterCollection soft path (default `/Game/Lyris/Materials/MPC_Sea.MPC_Sea`).
 - `ULyrisOceanSubsystem : UTickableWorldSubsystem`, header `World/LyrisOceanSubsystem.h`. BlueprintCallable, const:
   - `float GetSeaLevel() const`
@@ -18,7 +18,7 @@ All three tasks code against this. Do not change names or the formula without te
   - `static ULyrisOceanSubsystem* Get(const UObject* WorldContext)`
   Each tick it writes the Material Parameter Collection below (if the asset exists; silently skip if not). At most 4 calm zones go to the MPC: home zones first, then registered ones, nearest to the player.
 
-## Material Parameter Collection (Environment lane, T19) — `/Game/Lyris/Materials/MPC_Sea`, created by the Harbor build script
+## Material Parameter Collection (Environment lane, T19) — `/Game/Lyris/Materials/MPC_Sea`, created by `Content/Python/lyris_build_world.py`
 - Scalar `OceanTime`, Scalar `SeaLevel`, Scalar `CalmAmplitudeScale`
 - Vector `Wave0`..`Wave3` = (DirX, DirY, WavelengthCm, AmplitudeCm)   (DirX/DirY unit vector from DirectionYawDeg)
 - Vector `WaveSteepness` = (S0, S1, S2, S3)

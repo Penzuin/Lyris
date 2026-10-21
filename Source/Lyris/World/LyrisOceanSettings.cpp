@@ -15,8 +15,8 @@ ULyrisOceanSettings::ULyrisOceanSettings()
 	Waves[2] = FLyrisOceanWave(-20.f, 1700.f, 10.f, 0.25f);
 	Waves[3] = FLyrisOceanWave(120.f, 900.f, 4.f, 0.20f);
 
-	// The home harbor at the world origin is always calm.
-	HomeCalmZones.Add(FLyrisCalmZone(FVector2D(0.f, 0.f), 6000.f, 4000.f));
+	// Moonharbor's bay (the home harbor) is always calm. Same as Config/DefaultGame.ini (T37).
+	HomeCalmZones.Add(FLyrisCalmZone(FVector2D(-20000.f, -266000.f), 55000.f, 40000.f));
 
 	SeaParameterCollection = TSoftObjectPtr<UMaterialParameterCollection>(FSoftObjectPath(TEXT("/Game/Lyris/Materials/MPC_Sea.MPC_Sea")));
 }

@@ -11,6 +11,8 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
+#include "Lyris.h"
 #include "LyrisBoat.h"
 #include "World/LyrisOceanSubsystem.h"
 
@@ -47,7 +49,7 @@ ULyrisSwimComponent::ULyrisSwimComponent()
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 	PrimaryComponentTick.TickGroup = TG_PrePhysics;
 
-	// Near home = near the island or near the Harbor dock.
+	// Last-resort defaults (the retired Harbor map); BeginPlay replaces them with tagged actors.
 	HomeAnchors.Add(FVector::ZeroVector);
 	HomeAnchors.Add(ReturnPoint);
 }
@@ -66,6 +68,54 @@ void ULyrisSwimComponent::BeginPlay()
 
 	// We set the vertical position before the movement component does its horizontal move each frame.
 	Movement->AddTickPrerequisiteComponent(this);
+
+	FindTideHome();
+}
+
+void ULyrisSwimComponent::FindTideHome()
+{
+	TArray<AActor*> Homes;
+	UGameplayStatics::GetAllActorsWithTag(this, TideHomeTag, Homes);
+	if (Homes.Num() == 0)
+	{
+		UGameplayStatics::GetAllActorsWithTag(this, DockPointTag, Homes);
+	}
+	if (Homes.Num() == 0)
+	{
+		UE_LOG(LogLyris, Warning, TEXT("LyrisSwimComponent: no actor tagged %s or %s; the tide uses the default ReturnPoint %s."),
+			*TideHomeTag.ToString(), *DockPointTag.ToString(), *ReturnPoint.ToString());
+		return;
+	}
+
+	// Every tagged point counts as home; the tide returns you to the nearest one to where you start.
+	const FVector Start = Character->GetActorLocation();
+	HomeAnchors.Reset();
+	float BestDistSq = TNumericLimits<float>::Max();
+	for (const AActor* Home : Homes)
+	{
+		const FVector HomeLocation = Home->GetActorLocation();
+		HomeAnchors.Add(HomeLocation);
+		const float DistSq = FVector::DistSquared(Start, HomeLocation);
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			ReturnPoint = HomeLocation;
+		}
+	}
+
+	// The tagged point sits at standing height on the deck; settle onto whatever is below it in case it was
+	// placed higher, keeping the capsule's half height above the surface.
+	if (const UCapsuleComponent* Capsule = Character->GetCapsuleComponent())
+	{
+		FHitResult Hit;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(LyrisTideHome), false, Character);
+		const FVector TraceStart = ReturnPoint + FVector(0.f, 0.f, 200.f);
+		const FVector TraceEnd = ReturnPoint - FVector(0.f, 0.f, 1000.f);
+		if (GetWorld()->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_Visibility, Params))
+		{
+			ReturnPoint.Z = Hit.ImpactPoint.Z + Capsule->GetScaledCapsuleHalfHeight() + 2.f;
+		}
+	}
 }
 
 void ULyrisSwimComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
