@@ -10,6 +10,7 @@
 class USpringArmComponent;
 class UCameraComponent;
 class ULyrisSwimComponent;
+class ULyrisAppearanceComponent;
 class UInputAction;
 class UInputMappingContext;
 class ULyrisStaminaComponent;
@@ -42,7 +43,11 @@ class ALyrisCharacter : public ACharacter
 	/** Breath: the stamina pool sprinting and climbing draw from (T32) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<ULyrisStaminaComponent> Stamina;
-	
+
+	/** Looks from the character creator: body sliders, parts, colours (T23) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<ULyrisAppearanceComponent> AppearanceComponent;
+
 protected:
 
 	/** Jump Input Action */
@@ -79,6 +84,18 @@ public:
 	ALyrisCharacter(const FObjectInitializer& ObjectInitializer);	
 
 protected:
+
+	/** Loads the saved character look (slot LyrisCharacter_0) for the locally controlled player */
+	virtual void BeginPlay() override;
+
+	/** Also loads the saved look when the pawn is possessed after BeginPlay (respawn, late possession) */
+	virtual void NotifyControllerChanged() override;
+
+	/** Applies the saved look once, if this pawn is locally controlled and has begun play */
+	void TryApplySavedAppearance();
+
+	/** Set once the saved look has been applied to this pawn */
+	bool bSavedAppearanceApplied = false;
 
 	/** Initialize input action bindings */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -119,6 +136,9 @@ public:
 
 	/** Returns the swim component **/
 	FORCEINLINE ULyrisSwimComponent* GetSwimComponent() const { return SwimComponent; }
+
+	/** Returns the appearance component **/
+	FORCEINLINE ULyrisAppearanceComponent* GetAppearanceComponent() const { return AppearanceComponent; }
 
 	/** While swimming, Jump kicks up or climbs out instead of jumping */
 	virtual void Jump() override;

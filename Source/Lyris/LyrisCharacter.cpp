@@ -15,6 +15,8 @@
 #include "Player/LyrisCharacterMovementComponent.h"
 #include "Player/LyrisMovementInput.h"
 #include "Player/LyrisStaminaComponent.h"
+#include "Player/Appearance/LyrisAppearanceComponent.h"
+#include "Player/Appearance/LyrisCharacterSaveGame.h"
 
 ALyrisCharacter::ALyrisCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<ULyrisCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
@@ -58,8 +60,41 @@ ALyrisCharacter::ALyrisCharacter(const FObjectInitializer& ObjectInitializer)
 	// Breath (T32): sprinting and climbing draw from it; swimming never does
 	Stamina = CreateDefaultSubobject<ULyrisStaminaComponent>(TEXT("Stamina"));
 
+	// Appearance (T23): applies the creator look to the Mesh (bones now, morphs once T25 lands)
+	AppearanceComponent = CreateDefaultSubobject<ULyrisAppearanceComponent>(TEXT("AppearanceComponent"));
+
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+}
+
+void ALyrisCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	TryApplySavedAppearance();
+}
+
+void ALyrisCharacter::NotifyControllerChanged()
+{
+	Super::NotifyControllerChanged();
+	// Respawned or late-possessed pawns get their controller after BeginPlay (server: PossessedBy; owning
+	// client: OnRep_Controller); both end up here, so the saved look is applied then.
+	TryApplySavedAppearance();
+}
+
+void ALyrisCharacter::TryApplySavedAppearance()
+{
+	// Only the player sitting at this machine loads their saved look, and only once per pawn. The component
+	// then replicates it to the server and other players. T26 also applies the look when the creator
+	// finishes; this covers "play again with my saved character".
+	if (bSavedAppearanceApplied || !AppearanceComponent || !HasActorBegunPlay() || !IsLocallyControlled())
+	{
+		return;
+	}
+	bSavedAppearanceApplied = true;
+	if (const ULyrisCharacterSaveGame* Save = ULyrisCharacterSaveGame::LoadCharacter())
+	{
+		AppearanceComponent->SetAppearance(Save->Profile.Appearance);
+	}
 }
 
 void ALyrisCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
