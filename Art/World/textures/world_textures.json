@@ -1,0 +1,28 @@
+{
+ "packs": {
+  "T_LyrisDetailA": [
+   "grass",
+   "sand",
+   "cliff",
+   "seabed"
+  ],
+  "T_LyrisDetailB": [
+   "snow",
+   "strata",
+   "salt",
+   "basalt"
+  ]
+ },
+ "encoding": "each channel = 0.5 * linear luminance / mean (detail centred on 1.0 = sample * 2)",
+ "linear_luma_mean": {
+  "grass": 0.4436,
+  "sand": 0.7209,
+  "cliff": 0.3943,
+  "seabed": 0.5988,
+  "snow": 0.8439,
+  "strata": 0.2323,
+  "salt": 0.7823,
+  "basalt": 0.0867
+ },
+ "noise": "T_LyrisWorldNoise: four independent seamless soft noises, R G B A"
+}
