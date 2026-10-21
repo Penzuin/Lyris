@@ -12,9 +12,16 @@
 #include "InputActionValue.h"
 #include "Lyris.h"
 #include "Player/LyrisSwimComponent.h"
+#include "Player/LyrisCharacterMovementComponent.h"
+#include "Player/LyrisMovementInput.h"
+#include "Player/LyrisStaminaComponent.h"
 
-ALyrisCharacter::ALyrisCharacter()
+ALyrisCharacter::ALyrisCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<ULyrisCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
+	// Ticks only to keep the gamepad sprint toggle in step (T32)
+	PrimaryActorTick.bCanEverTick = true;
+
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 		
@@ -29,9 +36,7 @@ ALyrisCharacter::ALyrisCharacter()
 
 	// Note: For faster iteration times these variables, and many more, can be tweaked in the Character Blueprint
 	// instead of recompiling to adjust them
-	GetCharacterMovement()->JumpZVelocity = 500.f;
-	GetCharacterMovement()->AirControl = 0.35f;
-	GetCharacterMovement()->MaxWalkSpeed = 500.f;
+	// Walk speed, jump height and air control come from Project Settings > Game > Lyris Movement (T32)
 	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
@@ -49,6 +54,9 @@ ALyrisCharacter::ALyrisCharacter()
 
 	// Swimming (T20): floats, rides the waves and climbs out; see ULyrisSwimComponent
 	SwimComponent = CreateDefaultSubobject<ULyrisSwimComponent>(TEXT("SwimComponent"));
+
+	// Breath (T32): sprinting and climbing draw from it; swimming never does
+	Stamina = CreateDefaultSubobject<ULyrisStaminaComponent>(TEXT("Stamina"));
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
@@ -69,6 +77,24 @@ void ALyrisCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ALyrisCharacter::Look);
+
+		// Sprinting (T32): actions are made in code unless set on the Blueprint
+		if (!SprintAction)
+		{
+			SprintAction = FLyrisMovementInput::CreateSprintAction(this);
+		}
+		if (!SprintToggleAction)
+		{
+			SprintToggleAction = FLyrisMovementInput::CreateSprintToggleAction(this);
+		}
+		if (!MovementMappingContext)
+		{
+			MovementMappingContext = FLyrisMovementInput::CreateMappingContext(this, SprintAction, SprintToggleAction);
+		}
+		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &ALyrisCharacter::SprintStarted);
+		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &ALyrisCharacter::SprintCompleted);
+		EnhancedInputComponent->BindAction(SprintToggleAction, ETriggerEvent::Started, this, &ALyrisCharacter::SprintToggled);
+		FLyrisMovementInput::AddMappingContext(this, MovementMappingContext);
 	}
 	else
 	{
@@ -144,4 +170,81 @@ void ALyrisCharacter::Jump()
 		return;
 	}
 	Super::Jump();
+
+	// On land and on walls the Lyris movement component handles the jump: buffer, coyote time,
+	// variable height, climb leap and wall kick (T32)
+	if (ULyrisCharacterMovementComponent* Move = GetLyrisMovement())
+	{
+		Move->SetJumpInput(true);
+	}
+}
+
+// ---- T32: Breath, sprint and the Lyris movement component ----
+
+ULyrisCharacterMovementComponent* ALyrisCharacter::GetLyrisMovement() const
+{
+	return Cast<ULyrisCharacterMovementComponent>(GetCharacterMovement());
+}
+
+void ALyrisCharacter::StopJumping()
+{
+	Super::StopJumping();
+	if (ULyrisCharacterMovementComponent* Move = GetLyrisMovement())
+	{
+		Move->SetJumpInput(false);
+	}
+}
+
+void ALyrisCharacter::PawnClientRestart()
+{
+	Super::PawnClientRestart();
+
+	// Coming back from the boat clears the input stack, so add the sprint mapping again
+	FLyrisMovementInput::AddMappingContext(this, MovementMappingContext);
+}
+
+void ALyrisCharacter::SprintStarted(const FInputActionValue& Value)
+{
+	if (ULyrisCharacterMovementComponent* Move = GetLyrisMovement())
+	{
+		Move->SetSprintInput(true);
+	}
+}
+
+void ALyrisCharacter::SprintCompleted(const FInputActionValue& Value)
+{
+	if (ULyrisCharacterMovementComponent* Move = GetLyrisMovement())
+	{
+		Move->SetSprintInput(bSprintToggled);
+	}
+}
+
+void ALyrisCharacter::SprintToggled(const FInputActionValue& Value)
+{
+	bSprintToggled = !bSprintToggled;
+	if (ULyrisCharacterMovementComponent* Move = GetLyrisMovement())
+	{
+		Move->SetSprintInput(bSprintToggled);
+	}
+}
+
+void ALyrisCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	// The gamepad toggle switches off when you stop moving or run out of Breath
+	if (bSprintToggled)
+	{
+		ULyrisCharacterMovementComponent* Move = GetLyrisMovement();
+		const bool bStill = Move && Move->GetCurrentAcceleration().IsNearlyZero();
+		const bool bWinded = Stamina && Stamina->IsWinded();
+		if (bStill || bWinded)
+		{
+			bSprintToggled = false;
+			if (Move)
+			{
+				Move->SetSprintInput(false);
+			}
+		}
+	}
 }
