@@ -17,9 +17,6 @@
 
 namespace LyrisGameModePrivate
 {
-	/** The save slot the creator writes and the character reads (see ULyrisCharacterSaveGame). */
-	static const TCHAR* CharacterSlot = TEXT("LyrisCharacter_0");
-
 	static TAutoConsoleVariable<int32> CVarForceCreator(
 		TEXT("Lyris.ForceCreator"),
 		0,
@@ -31,9 +28,9 @@ namespace LyrisGameModePrivate
 		TEXT("Delete the saved character so the next start opens the character creator."),
 		FConsoleCommandDelegate::CreateLambda([]()
 		{
-			if (UGameplayStatics::DoesSaveGameExist(CharacterSlot, 0))
+			if (ULyrisCharacterSaveGame::HasSavedCharacter())
 			{
-				UGameplayStatics::DeleteGameInSlot(CharacterSlot, 0);
+				UGameplayStatics::DeleteGameInSlot(ULyrisCharacterSaveGame::SlotName, ULyrisCharacterSaveGame::UserIndex);
 			}
 		}));
 }
@@ -54,7 +51,7 @@ void ALyrisGameMode::HandleStartingNewPlayer_Implementation(APlayerController* N
 	}
 
 	const bool bForce = LyrisGameModePrivate::CVarForceCreator.GetValueOnGameThread() != 0;
-	const bool bHasCharacter = UGameplayStatics::DoesSaveGameExist(LyrisGameModePrivate::CharacterSlot, 0);
+	const bool bHasCharacter = ULyrisCharacterSaveGame::HasSavedCharacter();
 	if (!bForce && (!bOpenCreatorForNewPlayers || bHasCharacter))
 	{
 		return;
@@ -121,15 +118,11 @@ void ALyrisGameMode::HandleCreatorClosed()
 	// Apply the look the creator just saved. The character also loads it on BeginPlay, but that
 	// already ran before the creator opened. If the player closed without saving, there is no
 	// save and they keep the default look; the creator opens again next time.
-	if (UGameplayStatics::DoesSaveGameExist(LyrisGameModePrivate::CharacterSlot, 0))
+	if (const ULyrisCharacterSaveGame* Save = ULyrisCharacterSaveGame::LoadCharacter())
 	{
-		if (const ULyrisCharacterSaveGame* Save = Cast<ULyrisCharacterSaveGame>(
-				UGameplayStatics::LoadGameFromSlot(LyrisGameModePrivate::CharacterSlot, 0)))
+		if (ULyrisAppearanceComponent* Appearance = Pawn->FindComponentByClass<ULyrisAppearanceComponent>())
 		{
-			if (ULyrisAppearanceComponent* Appearance = Pawn->FindComponentByClass<ULyrisAppearanceComponent>())
-			{
-				Appearance->SetAppearance(Save->Profile.Appearance);
-			}
+			Appearance->SetAppearance(Save->Profile.Appearance);
 		}
 	}
 
