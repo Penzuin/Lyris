@@ -1,0 +1,2 @@
+# Baked terrain tiles are outputs: rebuild them with bake_terrain.py
+tiles/
