@@ -151,6 +151,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Lyris|Inventory")
 	ULyrisItemDefinition* GetActiveItem() const;
 
+	/**
+	 * Moves the stack in From onto To (inventory screens, T16): into an empty slot it moves; onto
+	 * the same item at the same quality it merges up to the stack limit (the rest stays in From);
+	 * onto anything else the two swap. Nothing is ever lost. The active hotbar slot keeps its
+	 * index. Returns false if nothing changed.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Lyris|Inventory")
+	bool MoveSlot(int32 From, int32 To);
+
 	/** Finds the inventory on an actor (or its controller's pawn / the pawn's controller). */
 	UFUNCTION(BlueprintPure, Category = "Lyris|Inventory")
 	static ULyrisInventoryComponent* FindInventory(const AActor* Actor);
