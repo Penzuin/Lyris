@@ -25,7 +25,7 @@ namespace LyrisOcean
 	/** Shortest wavelength we accept, so k never blows up. */
 	static constexpr double MinWavelengthCm = 1.0;
 
-	// MPC_Sea parameter names. Must match the contract and the Harbor build script exactly.
+	// MPC_Sea parameter names. Must match the contract and lyris_build_world.py exactly.
 	static const FName OceanTimeName(TEXT("OceanTime"));
 	static const FName SeaLevelName(TEXT("SeaLevel"));
 	static const FName CalmAmplitudeScaleName(TEXT("CalmAmplitudeScale"));
@@ -307,7 +307,7 @@ FVector2D ULyrisOceanSubsystem::GetPlayerXY() const
 			return FVector2D(Pawn->GetActorLocation());
 		}
 	}
-	// No player (editor viewport, dedicated server): measure from the world origin, where the home harbor is.
+	// No player (editor viewport, dedicated server): measure from the world origin.
 	return FVector2D::ZeroVector;
 }
 
@@ -320,7 +320,7 @@ void ULyrisOceanSubsystem::WriteMaterialParameters()
 		return;
 	}
 
-	// Load MPC_Sea once per settings change. If it is missing (the Harbor build script has not made it yet), skip quietly.
+	// Load MPC_Sea once per settings change. If it is missing (lyris_build_world.py has not made it yet), skip quietly.
 	if (CollectionRevision != Settings->GetRevision())
 	{
 		CollectionRevision = Settings->GetRevision();

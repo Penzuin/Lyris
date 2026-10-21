@@ -12,7 +12,7 @@
 
 /**
  * Breath ring colours, approved by the user in the reference page (wayfarers_breath.html).
- * These are UI colours, not world art, so they live here rather than in the Harbor PALETTE.
+ * These are UI colours, not world art, so they live here rather than in PALETTE (lyris_build_world.py).
  * Every colour the ring draws comes from this block; alpha is set per use.
  */
 namespace LyrisBreathRingDetail

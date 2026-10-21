@@ -45,6 +45,7 @@ class LYRIS_API ALyrisBoat : public APawn
 public:
 	ALyrisBoat();
 
+	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
 	/** Top speed in cm/s with full sail on the best point of sail. */
@@ -130,9 +131,12 @@ public:
 	// T21 hook: the walker hidden aboard while sailing (their inventory holds the planks).
 	APawn* GetStoredWalker() const { return StoredWalker; }
 
-	/** The lamps' reach: the mist turns you back beyond this distance from the island. */
+	/**
+	 * The lamps' reach: the mist turns you back beyond this distance (cm) from WorldCenter, which BeginPlay sets
+	 * to the dock point (or the boat's spawn). 13 km covers the 25 km Lyris world from Moonharbor.
+	 */
 	UPROPERTY(EditAnywhere, Category = "Sailing")
-	float WorldRadius = 55000.f;
+	float WorldRadius = 1300000.f;
 
 	/** How close the player must be to board (from the hull centre, cm). */
 	UPROPERTY(EditAnywhere, Category = "Boarding")
@@ -142,15 +146,25 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Boarding")
 	float LadderRadius = 260.f;
 
-	/** Where the player is placed when stepping ashore. */
+	/**
+	 * Where the player is placed when stepping ashore. At BeginPlay the nearest actor tagged DockPointTag
+	 * (lyris_build_world.py's DockPoint on Lantern Pier) overrides it; the default is the retired Harbor map's.
+	 */
 	UPROPERTY(EditAnywhere, Category = "Boarding")
 	FVector DockPoint = FVector(3000.f, 150.f, 170.f);
+
+	/** Actor tag of the step-ashore point (see lyris_build_world.py). */
+	UPROPERTY(EditAnywhere, Category = "Boarding")
+	FName DockPointTag = TEXT("LyrisDockPoint");
 
 	/** How close the boat must be to the dock point to step ashore. */
 	UPROPERTY(EditAnywhere, Category = "Boarding")
 	float DockRadius = 1300.f;
 
 private:
+	/** Centre of the WorldRadius limit (XY), set at BeginPlay. */
+	FVector2D WorldCenter = FVector2D::ZeroVector;
+
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UBoxComponent> HullCollision;
 

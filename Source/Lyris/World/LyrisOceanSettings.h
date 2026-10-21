@@ -117,7 +117,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Calm Waters")
 	TArray<FLyrisCalmZone> HomeCalmZones;
 
-	/** Material Parameter Collection the subsystem writes every tick for the sea material. Made by the Harbor build script. */
+	/** Material Parameter Collection the subsystem writes every tick for the sea material. Made by lyris_build_world.py. */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "Rendering")
 	TSoftObjectPtr<UMaterialParameterCollection> SeaParameterCollection;
 

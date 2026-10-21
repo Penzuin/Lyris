@@ -49,7 +49,7 @@ ULyrisHullComponent::ULyrisHullComponent()
 	PatchKey = EKeys::R;
 	PlankItemId = LyrisHull::PlankId;
 
-	// Same prototype materials as the boat itself (made by the Harbor build script).
+	// Same prototype materials as the boat itself (made by lyris_build_world.py).
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DarkWoodFinder(TEXT("/Game/Lyris/Materials/Prototype/M_DarkWood.M_DarkWood"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> WoodFinder(TEXT("/Game/Lyris/Materials/Prototype/M_Wood.M_Wood"));
