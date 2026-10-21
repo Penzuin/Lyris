@@ -1,16 +1,25 @@
-"""Generates the Lyris base character for the character creator (task T25).
+"""Generates the Lyris base character for the character creator (tasks T25, T46).
 
-Look: storybook painterly, Genshin-like softness with Lyris's own warmth. An adult figure about
-6.9 heads tall (172 cm, head 25 cm), soft simplified forms, large readable eyes set in real
-sockets, a small button nose, small soft lips, painted rosiness instead of modelled detail.
+Look: storybook painterly, Genshin-like warmth with Lyris's own identity. An adult about 6.4
+heads tall (176 cm, head 27.5 cm), soft round cheeks and jaw, a small button nose and mouth,
+large eyes with big painted irises under a bold upper lash line, chunky readable hair locks,
+and painted toon-style textures (warm lights, cool lavender shadows, soft rosiness).
 Two body frames from design/character_creator.md, FrameA "Willow" (narrower, lighter) and
 FrameB "Oak" (broader, sturdier). They are cosmetic only and share ONE skeleton and ONE head.
 
-How it is made: every part is a signed distance field (char_shapes.py) turned into a mesh by
-marching cubes, cleaned and decimated in Blender (bpy), UV-unwrapped, painted from 3D
-position (char_paint.py), skinned with distance-based weights and given morph targets that
-are analytic warps of space (char_morphs.py), so one morph moves the head, eyes, brows,
-lashes, ears and hair together. Blender then writes glTF 2.0 (.glb) and FBX.
+How it is made: every part is a signed distance field (char_shapes.py, char_hair.py). The head
+and body are quad-remeshed (voxel remesh + QuadriFlow in Blender, char_mesh.py) for even
+edge flow round the shoulders, elbows, knees and face, with real eye openings and a parted
+mouth on clean loops, a mouth interior, and hands spliced in at the wrists. Hair is built from
+swept, tapered locks. Textures are painted from 3D position (char_paint.py). Skin weights are
+distance-based, then smoothed over the mesh at the shoulders and hips. Morph targets are
+analytic warps of space (char_morphs.py for the creator sliders, char_face.py for blinks and
+expressions), so one morph moves the head, eyes, brows, lashes, ears and hair together.
+Blender then writes glTF 2.0 (.glb) and FBX.
+
+The head is designed at 6.9 heads tall and grown about the neck seam by
+char_shapes.HEAD_SCALE when exported (head_xform); the seam itself never moves, so head and
+body always meet.
 
 Skeleton (char_rig.py): the UE5 mannequin's bone names and hierarchy (root, pelvis,
 spine_01..05, neck_01..02, head, clavicles, arms, hands with thumb/index/middle/ring/pinky
@@ -25,7 +34,7 @@ mesh -90 degrees yaw so the pawn faces +X). Use the same -90 yaw here.
 
 Outputs (next to this script):
   SKM_Lyris_Body_FrameA.glb / _FrameB.glb   skin body per frame (neck down)
-  SKM_Lyris_Head.glb                        shared head with ears (two material sections)
+  SKM_Lyris_Head.glb                        shared head: sections face, ears, mouth interior
   SKM_Lyris_Eyes.glb, _Brows.glb, _Lashes.glb
   SKM_Lyris_Hair_<Style>.glb (+ _LongEar)   LamplighterBob, FallingWater, RopeBraid; the
                                             _LongEar variants leave room for elf and Deepkin ears
@@ -34,10 +43,12 @@ Outputs (next to this script):
   textures/*.png                            painted base colours and masks (see README.md)
   morph_targets.md                          slider -> morph mapping for the Player lane
   character_meta.json                       triangle counts, morphs per mesh, bone list
-  preview*.png                              Cycles renders for review
+  preview*.png                              toon-shaded EEVEE renders for review
+  preview_compare_*.png                     before (T25, from before_T25/) and after, same camera
 
 Run:  python3 make_character.py      (needs `pip install bpy` for Python 3.13: Blender 5.2)
-Takes about 15 minutes on 2 cores.
+      python3 make_character.py --fast   coarse quick look
+Takes about 40 minutes on 2 cores (most of it the previews).
 """
 
 import json
@@ -56,6 +67,9 @@ import bpy  # noqa: E402
 import bmesh  # noqa: E402  (available once bpy is imported)
 from mathutils import Vector  # noqa: E402
 
+import char_face as cf  # noqa: E402
+import char_hair as ch  # noqa: E402
+import char_mesh as cmesh  # noqa: E402
 import char_morphs as cm  # noqa: E402
 import char_paint as cp  # noqa: E402
 import char_rig as rig  # noqa: E402
@@ -67,12 +81,18 @@ FBX = os.path.join(HERE, "fbx")
 FAST = "--fast" in sys.argv          # quick look: coarser grids, fewer renders
 T0 = time.time()
 
-# Triangle budgets (body + head stays under 30k; see README)
-BUDGET = {"body": 17000, "head": 9500, "hair": 7000, "shirt": 5200, "trousers": 3600,
-          "belt": 500, "boots": 1800}
-STEP = {"body": 0.5, "head": 0.16, "hair": 0.2, "outfit": 0.35}
+# Mesh budgets. Head and body are quad-remeshed (QuadriFlow) to about QUAD faces each; the
+# hands are spliced in as triangles. Body + head stays under 30k triangles.
+QUAD = {"head": 5600, "body": 6600}
+VOXEL = {"head": 0.10, "body": 0.20}
+HAND_TRIS = 1700
+BUDGET = {"hair": 9000, "shirt": 5200, "trousers": 3600, "belt": 500, "boots": 1800}
+STEP = {"head": 0.14, "body": 0.4, "hair": 0.2, "outfit": 0.35}
 if FAST:
-    STEP = {"body": 0.8, "head": 0.3, "hair": 0.4, "outfit": 0.8}
+    QUAD = {"head": 3000, "body": 4000}
+    VOXEL = {"head": 0.15, "body": 0.3}
+    HAND_TRIS = 900
+    STEP = {"head": 0.25, "body": 0.7, "hair": 0.35, "outfit": 0.8}
 
 J, PARENTS, TAILS, HAND = rig.build_joints()
 DEFORM = [b for b in PARENTS if b != "root" and not b.startswith("ik_")]
@@ -312,6 +332,38 @@ def rigid_weights(n, bone="head"):
     return [[(bone, 1.0)] for _ in range(n)]
 
 
+def smooth_weights(V, T, weights, regions, iters=8, amount=0.5):
+    """Laplacian smoothing of skin weights over the mesh, only inside `regions`
+    (list of (centre, radius) in cm): soft shoulders and hips without a blur everywhere."""
+    bones = sorted({b for ws in weights for b, _ in ws})
+    idx = {b: i for i, b in enumerate(bones)}
+    W = np.zeros((len(V), len(bones)))
+    for i, ws in enumerate(weights):
+        for b, w in ws:
+            W[i, idx[b]] = w
+    mask = np.zeros(len(V))
+    for c, r in regions:
+        d = np.linalg.norm(V - np.asarray(c, float), axis=1)
+        mask = np.maximum(mask, 1 - cp.smoothstep(r * 0.6, r, d))
+    nb = cmesh.adjacency(len(V), T.tolist())
+    for _ in range(iters):
+        avg = np.array([W[n].mean(0) if len(n) else W[i] for i, n in enumerate(nb)])
+        W = W + (avg - W) * (amount * mask)[:, None]
+    W /= np.maximum(W.sum(1, keepdims=True), 1e-9)
+    out = []
+    for i in range(len(V)):
+        order = np.argsort(-W[i])[:4]
+        top = W[i, order]
+        top[top < 0.02] = 0
+        top /= max(top.sum(), 1e-9)
+        out.append([(bones[order[j]], float(top[j])) for j in range(4) if top[j] > 0])
+    return out
+
+
+SMOOTH_REGIONS = [((x * s, 0.5, 136.0), 9.0) for s in (1, -1) for x in (13.5,)] + \
+    [((9.0 * s, 0.5, 92.0), 10.0) for s in (1, -1)] + [((0, 0.5, 92.0), 8.0)]
+
+
 # ----------------------------------------------------------------------------- morphs per mesh
 
 def eval_morphs(V, N, groups, extra=None, region="head"):
@@ -334,6 +386,23 @@ def eval_morphs(V, N, groups, extra=None, region="head"):
 
 
 HEAD_GROUPS = (cm.FACE, cm.EYE, cm.BROW)
+
+
+def head_morphs(V, N, extra=None, face_rig=True, brows=False):
+    """Creator morphs + face rig morphs for a mesh on the head, in design space."""
+    out = eval_morphs(V, N, HEAD_GROUPS, extra)
+    if face_rig:
+        fade = cm.seam(V)[:, None]
+        for k, D in cf.expression_morphs(V, N).items():
+            D = D * fade
+            if np.abs(D).max() > 0.004:
+                out[k] = D
+    return out
+
+
+def to_export(V, morphs):
+    """Design space -> exported space (the larger storybook head) for a head-attached mesh."""
+    return cs.head_xform(V), {k: cs.head_xform(V + D) - cs.head_xform(V) for k, D in morphs.items()}
 
 
 # ----------------------------------------------------------------------------- objects
@@ -412,6 +481,23 @@ def srgb_to_lin(c):
     return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
 
 
+# The morph names each mesh shipped with in T25 (the Player lane's catalog drives them by name).
+STABLE_PATH = os.path.join(HERE, "morph_names_T25.json")
+STABLE = {}
+if os.path.exists(STABLE_PATH):
+    with open(STABLE_PATH) as _f:
+        STABLE = {k: set(v) for k, v in json.load(_f).items()}
+
+
+def keep_stable(key, morphs, V):
+    """Every morph name a mesh had in an earlier release stays on it (as a zero morph if the new
+    shape no longer moves that mesh), so the Player lane's catalog never loses a target."""
+    for k in STABLE.get(key, ()):
+        if k not in morphs:
+            morphs[k] = np.zeros_like(V)
+    return morphs
+
+
 def make_object(name, V, tris, uv, normals, weights, morphs, mats, mat_idx=None):
     me = bpy.data.meshes.new(name)
     me.from_pydata((V / 100.0).tolist(), [], tris.tolist())
@@ -437,9 +523,10 @@ def make_object(name, V, tris, uv, normals, weights, morphs, mats, mat_idx=None)
             g = groups.get(b) or ob.vertex_groups.new(name=b)
             groups[b] = g
             g.add([i], w, "REPLACE")
+    morphs = keep_stable(name.replace("SKM_Lyris_", ""), dict(morphs), V)
     if morphs:
         ob.shape_key_add(name="Basis", from_mix=False)
-        for mname, D in morphs.items():
+        for mname, D in sorted(morphs.items()):
             sk = ob.shape_key_add(name=mname, from_mix=False)
             sk.data.foreach_set("co", ((V + D) / 100.0).reshape(-1).astype(np.float32))
             sk.slider_min, sk.slider_max = 0.0, 1.0
@@ -456,16 +543,75 @@ def corner_paintmap(V, tris, uv, N, size):
 
 # ----------------------------------------------------------------------------- parts
 
+def head_closed(P):
+    """The head and neck alone (no shoulders), capped below the seam: one closed surface that
+    sits inside the remesh box. Above the seam it is identical to the full frame field."""
+    h = cs.head_sdf(P, closed=True)
+    f = cs.frame_sdf(P, "FrameA", closed=True)
+    # identical to the frame above 147 cm; near the seam take the frame's neck (so the body,
+    # built from the frame, meets it), and below it the bare neck, capped
+    t = cp.smoothstep(146.5, 141.0, P[:, 2])
+    r = np.sqrt(P[:, 0] ** 2 + (P[:, 1] - 1.2) ** 2)
+    t = t * (1 - cp.smoothstep(6.5, 8.0, r))
+    d = h * (1 - t) + f * t
+    return cs.smax(d.astype(np.float32), 136.5 - P[:, 2], 0.5)
+
+
+def head_open(P):
+    return cs.frame_sdf(P, "FrameA", closed=False)
+
+
 def build_head():
-    fa = lambda P: cs.frame_sdf(P, "FrameA")
-    V, Fc = sdf.march(fa, (-10.5, -13, 140.5), (10.5, 12.5, 174.5), STEP["head"])
-    V, tris = clean_cut_decimate(V, Fc, BUDGET["head"], cut=("above", cs.NECK_CUT_Z))
-    V = project_keep_seam(fa, V, tris)
-    seam_loop = boundary_polyline(V, tris)
-    N = sdf.gradient(fa, V).astype(np.float64)
+    """Quad-remeshed head in design space, eye openings and the parted mouth on clean loops."""
+    V, F = cmesh.quad_remesh(head_closed, (-11.03, -13, 135), (11, 13, 174.5), STEP["head"],
+                             VOXEL["head"], QUAD["head"])
+    V, F = cmesh.bisect(V, F, cs.NECK_CUT_Z, keep="above")
+    eyes = [(cs.EYE[s_].astype(float) + np.array([0, -1.2, 0.2]), 3.4) for s_ in ("l", "r")]
+    mouth = [(cs.MOUTH.astype(float), 2.4)]
+    V, F = cmesh.subdivide_region(V, F, eyes + mouth, 1, head_closed)
+    V, F = cmesh.subdivide_region(V, F, [(cs.MOUTH.astype(float), 1.9)], 1, head_closed)
+    V, F = cmesh.cut_eye_holes(V, F, head_open)
+    V, F = cmesh.cut_mouth(V, F, head_open)
+    nquad = sum(1 for f in F if len(f) == 4)
+    V, tris = cmesh.triangulate(V, F)
+    b = boundary_ids(tris)
+    seam = b[np.abs(V[b, 2] - cs.NECK_CUT_Z) < 0.4]
+    V[seam, 2] = cs.NECK_CUT_Z
+    seam_loop = seam_polyline(V, tris, seam)
+    N = vertex_normals(V, tris)
     uv = smart_uv(V, tris)
-    log(f"head: {len(tris)} tris")
+    log(f"head: {len(tris)} tris ({nquad} of {len(F)} faces quads before triangulating)")
     return V, tris, uv, N, seam_loop
+
+
+def seam_polyline(V, tris, ids):
+    ids = set(int(i) for i in ids)
+    edges = np.sort(np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]]), axis=1)
+    uniq, cnt = np.unique(edges, axis=0, return_counts=True)
+    b = [e for e in uniq[cnt == 1] if e[0] in ids and e[1] in ids]
+    nbr = {}
+    for a, c in b:
+        nbr.setdefault(a, []).append(c)
+        nbr.setdefault(c, []).append(a)
+    start = b[0][0]
+    loop, prev, cur = [start], None, start
+    while True:
+        nxt = [x for x in nbr[cur] if x != prev]
+        if not nxt or nxt[0] == start:
+            break
+        prev, cur = cur, nxt[0]
+        loop.append(cur)
+    loop.append(start)
+    return V[loop]
+
+
+def build_mouth_interior():
+    V, T, pid = cmesh.mouth_interior()
+    uv = np.zeros((len(T), 3, 2))
+    uv[:, :, 0] = (0.15 + 0.35 * pid)[:, None]
+    uv[:, :, 1] = 0.5
+    N = vertex_normals(V, T)
+    return V, T, uv, N, pid
 
 
 def build_ears():
@@ -539,14 +685,32 @@ def vertex_normals(V, T):
 
 
 def build_body(frame_id, seam_loop):
+    """Quad-remeshed body (neck down) with full-detail hands spliced in at the wrists."""
     f = lambda P: cs.frame_sdf(P, frame_id)
-    V, Fc = sdf.march(f, (-62, -26, -0.6), (62, 17, 144.0), STEP["body"])
-    V, tris = clean_cut_decimate(V, Fc, BUDGET["body"], cut=("below", cs.NECK_CUT_Z))
-    V = project_keep_seam(f, V, tris)
+    cap = lambda P: cs.smax(f(P), P[:, 2] - (cs.NECK_CUT_Z + 3.0), 0.6)
+    V, F = cmesh.quad_remesh(cap, (-62.03, -26, -0.6), (62, 17, cs.NECK_CUT_Z + 4), STEP["body"],
+                             VOXEL["body"], QUAD["body"])
+    V, F = cmesh.bisect(V, F, cs.NECK_CUT_Z, keep="below")
+    nquad = sum(1 for fc in F if len(fc) == 4)
+    for side in ("l", "r"):
+        wrist, d, n, w = cs.HAND[side]
+        co = wrist - d * 1.2
+        V, F = cmesh.cut_local(V, F, co, d, 7.0)
+        parts = lambda P, side=side: cs._limb_parts(P, cs.FRAMES[frame_id], ("arm", "hand"))
+        hf = lambda P, side=side: cs.smin(parts(P)[f"lowerarm_{side}"], parts(P)[f"hand_{side}"], 1.2)
+        Vh, Fh = sdf.march(hf, wrist - 14, wrist + 14, 0.13 if not FAST else 0.2)
+        Vh, Fh = cmesh.cut_local(Vh, Fh, co, -d, 30.0)
+        Vh, Fh = cmesh.decimate(Vh, Fh, HAND_TRIS)
+        Vh = sdf.project(hf, Vh, iters=2)
+        V, F = cmesh.loft(V, F, Vh, Fh, co, d)
+    V, tris = cmesh.triangulate(V, F)
+    b = boundary_ids(tris)
+    seam = b[np.abs(V[b, 2] - cs.NECK_CUT_Z) < 0.4]
+    V[seam, 2] = cs.NECK_CUT_Z
     V, _ = snap_boundary(V, tris, seam_loop)
-    N = sdf.gradient(f, V).astype(np.float64)
+    N = vertex_normals(V, tris)
     uv = smart_uv(V, tris)
-    log(f"body {frame_id}: {len(tris)} tris")
+    log(f"body {frame_id}: {len(tris)} tris ({nquad} quads in the remeshed body before triangulating)")
     return V, tris, uv, N
 
 
@@ -596,10 +760,11 @@ def build_eyes():
 
 
 def head_surface(P, iters=5):
-    return sdf.project(lambda X: cs.frame_sdf(X, "FrameA"), P, iters=iters)
+    return sdf.project(head_open, P, iters=iters)
 
 
 def build_brows():
+    """Brow cards: thick at the inner end, tapering to the tail, laid on the skin above the eye."""
     nu, nv = 22, 4
     Vs, UVs, Ts = [], [], []
     off = 0
@@ -609,14 +774,13 @@ def build_brows():
             for i in range(nu + 1):
                 u = i / nu
                 v = j / nv
-                x = 1.05 + 5.0 * u
-                z = 160.95 + 0.85 * math.sin(min(u * 1.25, 1.0) * math.pi * 0.62) - 0.25 * u + (v - 0.5) * 1.15
+                x = 1.15 + 5.3 * u
+                z = 162.1 + 0.75 * math.sin(min(u * 1.2, 1.0) * math.pi * 0.62) - 0.35 * u + (v - 0.5) * 1.3
                 grid.append((x * s, -9.5, z))
         grid = np.array(grid)
-        # project onto the head from the front, then lift a little off the skin
         P = head_surface(grid)
-        Nn = sdf.gradient(lambda X: cs.frame_sdf(X, "FrameA"), P).astype(float)
-        P = P + Nn * 0.035
+        Nn = sdf.gradient(head_open, P).astype(float)
+        P = P + Nn * 0.04
         uv = np.array([(i / nu, j / nv) for j in range(nv + 1) for i in range(nu + 1)])
         tris = []
         for j in range(nv):
@@ -633,40 +797,47 @@ def build_brows():
     return V, T, UV[T], N
 
 
-def lash_points(curl=0.0, length=1.0):
-    nu = 24
+LASH_ROWS = 4
+
+
+def lash_points(curl=0.0, length=1.0, lid=(0.0, 0.0)):
+    """Upper lash cards on the lid edge: a bold lash line at the root that flicks out at the outer
+    corner. `lid` (left, right) is the upper-lid close amount (1 = blink), so the lashes ride the
+    lid in blinks and expressions."""
+    nu = 28
     Vs, UVs, Ts = [], [], []
     off = 0
     for side, s in (("l", 1.0), ("r", -1.0)):
+        amount = lid[0] if side == "l" else lid[1]
         R = cs.eye_rot(side).astype(float)
-        c = cs.EYE[side].astype(float)
-        us = np.linspace(-cm.EYE_W * 0.97, cm.EYE_W * 1.02, nu + 1)
-        roots = []
-        for u in us:
-            v = cm.upper_curve(np.array([u]))[0] + 0.03
-            roots.append(c + R @ np.array([u, -1.6, v]))
-        roots = np.array(roots)
-        roots = head_surface(roots) + np.array([0, -0.02, 0])
-        # step back onto the lid edge: move each root down onto the opening along the lid
+        us = np.linspace(-cs.EYE_W * 0.98, cs.EYE_W * 1.06, nu + 1)
+        up = cm.upper_curve(us)
+        meet = cf.meet_line(us)
+        v_root = up - (up - meet) * amount + 0.05
+        uv_root = np.stack([us, v_root], 1)
+        roots = cmesh.lid_point(side, uv_root, 0.09)
         rows = []
         for k, u in enumerate(us):
-            t = (u / cm.EYE_W + 1) / 2                       # 0 inner .. 1 outer
-            L = (0.42 + 0.55 * t ** 1.3) * length
-            out = R[:, 0] * (0.25 + 0.6 * t) + np.array([0, -1.0, 0]) * 0.9 + np.array([0, 0, 1.0]) * 0.55
+            t = (u / cs.EYE_W + 1) / 2                       # 0 inner .. 1 outer
+            L = (0.30 + 0.75 * t ** 1.6) * length
+            closed = np.clip(amount, 0, 1)
+            out = R[:, 0] * (0.2 + 0.9 * t ** 2) - R[:, 1] * 0.85 + R[:, 2] * (0.55 - 1.2 * closed)
             out /= np.linalg.norm(out)
-            up = np.array([0, 0.3, 1.0])
-            up /= np.linalg.norm(up)
-            d = out * (1 - curl * 0.3) + up * (0.35 + curl * 0.6)
-            d /= np.linalg.norm(d)
-            mid = roots[k] + out * L * 0.5
-            tip = mid + d * L * 0.5
-            rows.append((roots[k], mid, tip))
-        P = np.array([r[j] for j in range(3) for r in rows])
-        uv = np.array([(i / nu, j / 2) for j in range(3) for i in range(nu + 1)])
-        if s < 0:
-            uv[:, 0] = uv[:, 0]
+            upv = R[:, 2] * (1 - 1.6 * closed) - R[:, 1] * 0.25
+            upv /= np.linalg.norm(upv)
+            pts = [roots[k]]
+            dvec = out
+            for r in range(1, LASH_ROWS + 1):
+                a = r / LASH_ROWS
+                bend = (0.25 + 0.6 * curl) * a
+                dvec = out * (1 - bend) + upv * bend
+                dvec /= np.linalg.norm(dvec)
+                pts.append(pts[-1] + dvec * L / LASH_ROWS)
+            rows.append(pts)
+        P = np.array([rows[i][j] for j in range(LASH_ROWS + 1) for i in range(nu + 1)])
+        uv = np.array([(i / nu, j / LASH_ROWS) for j in range(LASH_ROWS + 1) for i in range(nu + 1)])
         tris = []
-        for j in range(2):
+        for j in range(LASH_ROWS):
             for i in range(nu):
                 a = j * (nu + 1) + i
                 b, cc, d = a + 1, a + nu + 1, a + nu + 2
@@ -680,54 +851,62 @@ def lash_points(curl=0.0, length=1.0):
 
 def build_lashes():
     V, T, UV = lash_points()
-    extra = {"Lash_Length_Pos": lash_points(length=1.4)[0] - V,
+    extra = {"Lash_Length_Pos": lash_points(length=1.35)[0] - V,
              "Lash_Length_Neg": lash_points(length=0.7)[0] - V,
              "Lash_Curl_Pos": lash_points(curl=1.0)[0] - V,
-             "Lash_Curl_Neg": lash_points(curl=-0.8)[0] - V}
+             "Lash_Curl_Neg": lash_points(curl=-0.6)[0] - V}
+    for name, (al, ar) in cf.lash_upper_amounts().items():
+        if al or ar:
+            extra[name] = lash_points(lid=(al, ar))[0] - V
     N = vertex_normals(V, T)
     return V, T, UV[T], N, extra
 
 
 HAIRS = {
-    "LamplighterBob": dict(fn="bob", top=171.5, bottom=147.0, flow="vertical", root="6F4128", tip="8E3B26"),
-    "FallingWater": dict(fn="long", top=171.5, bottom=113.0, flow="vertical", root="3B2419", tip="553322"),
-    "RopeBraid": dict(fn="braid", top=171.5, bottom=108.0, flow="braid", root="D4A55A", tip="E3C27E"),
+    "LamplighterBob": dict(root="6F4128", tip="8E3B26", flow="vertical"),
+    "FallingWater": dict(root="3B2419", tip="553322", flow="vertical"),
+    "RopeBraid": dict(root="D4A55A", tip="E3C27E", flow="braid"),
 }
 
 
 def build_hair(style, long_ears):
-    spec = HAIRS[style]
-    body = lambda P: cs.frame_sdf(P, "FrameB")   # the broader frame, so hair clears both
-    if spec["fn"] == "bob":
-        f = lambda P: cs.hair_bob(P, body(P), long_ears)
-        lo, hi = (-13, -12.5, 143), (13, 14, 175)
-    elif spec["fn"] == "long":
-        f = lambda P: cs.hair_long(P, body(P), long_ears)
-        lo, hi = (-15, -12, 109), (15, 16, 175)
-    else:
-        path = cs.braid_path(body)
-
-        def f(P):
-            h, _ = cs.hair_braid(P, body(P), path, long_ears)
-            return h
-        lo, hi = (-13, -15, 104), (16, 14, 175)
-        tie_fn = lambda P: cs.hair_braid(P, np.full(len(P), 10.0, np.float32), path)[1]
-    V, Fc = sdf.march(f, lo, hi, STEP["hair"])
+    """Chunky swept locks (char_hair.py), smoothed and decimated; the braid gets its tie."""
+    field, top, bottom = ch.style_locks(style, long_ears)
+    lo, hi = (-15, -13, bottom - 3), (15, 16, 175)
+    tie_fn = None
+    if style == "RopeBraid":
+        path = cs.braid_path(lambda P: cs.frame_sdf(P, "FrameB"))
+        bf, tie_fn = ch.braid_field(path)
+        f0 = field
+        field = lambda P: cs.smin(f0(P), bf(P), 1.0)
+        lo, hi = (-14, -16, 104), (17, 15, 175)
+    V, Fc = sdf.march(field, lo, hi, STEP["hair"])
     V, tris = clean_cut_decimate(V, Fc, BUDGET["hair"], keep_largest=True)
-    V = sdf.project(f, V, iters=2)
-    N = sdf.gradient(f, V).astype(float)
+    V = smooth_mesh(V, tris, iters=3)
+    N = vertex_normals(V, tris)
     mat_idx = np.zeros(len(tris), dtype=int)
-    if spec["fn"] == "braid":
-        Vt, Ft = sdf.march(tie_fn, (5, -15, 104), (14, -6, 120), 0.12)
+    if tie_fn is not None:
+        Vt, Ft = sdf.march(tie_fn, (4, -17, 104), (16, -4, 125), 0.1)
         Vt, Tt = clean_cut_decimate(Vt, Ft, 400)
-        Nt = sdf.gradient(tie_fn, Vt).astype(float)
+        Nt = vertex_normals(Vt, Tt)
         tris = np.concatenate([tris, Tt + len(V)])
         mat_idx = np.concatenate([mat_idx, np.ones(len(Tt), dtype=int)])
         V = np.concatenate([V, Vt])
         N = np.concatenate([N, Nt])
     uv = smart_uv(V, tris, angle=70)
     log(f"hair {style}{' long-ear' if long_ears else ''}: {len(tris)} tris")
-    return V, tris, uv, N, mat_idx
+    return V, tris, uv, N, mat_idx, top, bottom
+
+
+def smooth_mesh(V, T, iters=3, lam=0.5, mu=-0.53):
+    """Taubin smoothing: removes marching-cubes ripples without shrinking the locks."""
+    nb = cmesh.adjacency(len(V), T.tolist())
+    V = V.copy()
+    for _ in range(iters):
+        for k in (lam, mu):
+            avg = np.array([V[n].mean(0) if len(n) else V[i] for i, n in enumerate(nb)])
+            V = V + (avg - V) * k
+    return V
 
 
 def hair_extra_morphs(V, N, bottom):
@@ -755,6 +934,7 @@ def build_outfit(frame_id):
         V, Fc = sdf.march(f, *boxes[name], STEP["outfit"] if name != "belt" else 0.3)
         V, tris = clean_cut_decimate(V, Fc, BUDGET[name], keep_largest=(name in ("shirt", "belt")))
         V = sdf.project(f, V, iters=2)
+        V = smooth_mesh(V, tris, iters=2)          # soft hems and collar instead of voxel steps
         Vs.append(V)
         Ts.append(tris + off)
         Ns.append(sdf.gradient(f, V).astype(float))
@@ -812,9 +992,10 @@ def main():
     meta = {"bones": list(PARENTS), "deform_bones": DEFORM, "meshes": {}}
     objs = {}
 
-    # ---- head + ears (one skeletal mesh, two sections)
+    # ---- head + ears + mouth interior (one skeletal mesh, three sections)
     Vh, Th, UVh, Nh, seam_loop = build_head()
     Ve, Te, UVe, Ne, ear_m = build_ears()
+    Vm, Tm, UVm, Nm, mpid = build_mouth_interior()
     pm = corner_paintmap(Vh, Th, UVh, Nh, 1024 if not FAST else 512)
     base, prev, masks = cp.paint_skin(pm, "head")
     img_head = image("T_Head_BaseColor", base)
@@ -824,33 +1005,38 @@ def main():
     ebase, eprev, emasks = cp.paint_skin(pme, "ears")
     img_ears = image("T_Ears_BaseColor", ebase)
     image("T_Ears_Masks", emasks)
+    img_mouth = image("T_Mouth_BaseColor", cp.paint_mouth())
     m_head = material("M_Lyris_Head", img_head, rough=0.75)
     m_ears = material("M_Lyris_Ears", img_ears, rough=0.75)
-    Vhe = np.concatenate([Vh, Ve])
-    The = np.concatenate([Th, Te + len(Vh)])
-    UVhe = np.concatenate([UVh, UVe])
-    Nhe = np.concatenate([Nh, Ne])
-    mi = np.concatenate([np.zeros(len(Th), int), np.ones(len(Te), int)])
-    zeros_h = np.zeros_like(Vh)
-    ear_full = {k: np.concatenate([zeros_h, D]) for k, D in ear_m.items()}
-    morphs = eval_morphs(Vhe, Nhe, HEAD_GROUPS, ear_full)
-    w_head = skin_weights(Vh)
-    w = w_head + rigid_weights(len(Ve))
-    objs["Head"] = make_object("SKM_Lyris_Head", Vhe, The, UVhe, Nhe, w, morphs, [m_head, m_ears], mi)
+    m_mouth = material("M_Lyris_Mouth", img_mouth, rough=0.6)
+    Vhe = np.concatenate([Vh, Ve, Vm])
+    The = np.concatenate([Th, Te + len(Vh), Tm + len(Vh) + len(Ve)])
+    UVhe = np.concatenate([UVh, UVe, UVm])
+    Nhe = np.concatenate([Nh, Ne, Nm])
+    mi = np.concatenate([np.zeros(len(Th), int), np.ones(len(Te), int), np.full(len(Tm), 2)])
+    zh, zm = np.zeros_like(Vh), np.zeros_like(Vm)
+    ear_full = {k: np.concatenate([zh, D, zm]) for k, D in ear_m.items()}
+    morphs = head_morphs(Vhe, Nhe, ear_full)
+    Vx, morphs = to_export(Vhe, morphs)
+    w_head = skin_weights(cs.head_xform(Vh))
+    w = w_head + rigid_weights(len(Ve)) + rigid_weights(len(Vm))
+    objs["Head"] = make_object("SKM_Lyris_Head", Vx, The, UVhe, Nhe, w, morphs, [m_head, m_ears, m_mouth], mi)
     meta["meshes"]["Head"] = {"tris": int(len(The)), "head_tris": int(len(Th)), "ear_tris": int(len(Te)),
-                              "morphs": sorted(morphs)}
+                              "mouth_tris": int(len(Tm)), "morphs": sorted(morphs)}
+    seam_x = seam_loop                       # the seam is below the head blend: unchanged by head_xform
     log(f"head morphs {len(morphs)}")
 
     # ---- bodies
     body_data = {}
     for frame_id in ("FrameA", "FrameB"):
-        Vb, Tb, UVb, Nb = build_body(frame_id, seam_loop)
+        Vb, Tb, UVb, Nb = build_body(frame_id, seam_x)
         pmb = corner_paintmap(Vb, Tb, UVb, Nb, 1024 if not FAST else 512)
         base, prev, masks = cp.paint_skin(pmb, "body")
         img = image(f"T_Body_{frame_id}_BaseColor", base)
         image(f"T_Body_{frame_id}_Masks", masks)
         mb = material(f"M_Lyris_Body_{frame_id}", img, rough=0.75)
         wb = skin_weights(Vb)
+        wb = smooth_weights(Vb, Tb, wb, SMOOTH_REGIONS)
         mor = eval_morphs(Vb, Nb, (cm.BODY,), region="body")
         objs[f"Body_{frame_id}"] = make_object(f"SKM_Lyris_Body_{frame_id}", Vb, Tb, UVb, Nb, wb, mor, [mb])
         meta["meshes"][f"Body_{frame_id}"] = {"tris": int(len(Tb)), "morphs": sorted(mor)}
@@ -863,16 +1049,19 @@ def main():
     img_eye = image("T_Eyes_BaseColor", eye_col)
     image("T_Eyes_Masks", eye_mask)
     m_eye = material("M_Lyris_Eyes", img_eye, rough=0.15, spec=0.6)
-    mor = eval_morphs(Vy, Ny, HEAD_GROUPS)
-    objs["Eyes"] = make_object("SKM_Lyris_Eyes", Vy, Ty, UVy, Ny, rigid_weights(len(Vy)), mor, [m_eye])
+    mor = eval_morphs(Vy, Ny, HEAD_GROUPS)       # eyes follow the creator morphs, never the lids
+    Vyx, mor = to_export(Vy, mor)
+    objs["Eyes"] = make_object("SKM_Lyris_Eyes", Vyx, Ty, UVy, Ny, rigid_weights(len(Vy)), mor, [m_eye])
     meta["meshes"]["Eyes"] = {"tris": int(len(Ty)), "morphs": sorted(mor)}
 
     Vbr, Tbr, UVbr, Nbr = build_brows()
     brow = cp.paint_brow(256, 64)
     img_brow = image("T_Brows_Natural", brow)
     m_brow = material("M_Lyris_Brows", img_brow, alpha=True, rough=0.9)
-    mor = eval_morphs(Vbr, Nbr, HEAD_GROUPS)
-    objs["Brows"] = make_object("SKM_Lyris_Brows", Vbr, Tbr, UVbr, Nbr, rigid_weights(len(Vbr)), mor, [m_brow])
+    mor = head_morphs(Vbr, Nbr)
+    mor = {k: D for k, D in mor.items() if not k.startswith(("Eye_Blink", "Eye_Squint", "Eye_Wide", "Mouth_"))}
+    Vbx, mor = to_export(Vbr, mor)
+    objs["Brows"] = make_object("SKM_Lyris_Brows", Vbx, Tbr, UVbr, Nbr, rigid_weights(len(Vbr)), mor, [m_brow])
     meta["meshes"]["Brows"] = {"tris": int(len(Tbr)), "morphs": sorted(mor)}
 
     Vl, Tl, UVl, Nl, lash_m = build_lashes()
@@ -880,7 +1069,9 @@ def main():
     img_lash = image("T_Lashes_Natural", lash)
     m_lash = material("M_Lyris_Lashes", img_lash, alpha=True, rough=0.9)
     mor = eval_morphs(Vl, Nl, HEAD_GROUPS, lash_m)
-    objs["Lashes"] = make_object("SKM_Lyris_Lashes", Vl, Tl, UVl, Nl, rigid_weights(len(Vl)), mor, [m_lash])
+    # expression brow/mouth parts do not touch the lashes; their lid part is in lash_m
+    Vlx, mor = to_export(Vl, mor)
+    objs["Lashes"] = make_object("SKM_Lyris_Lashes", Vlx, Tl, UVl, Nl, rigid_weights(len(Vl)), mor, [m_lash])
     meta["meshes"]["Lashes"] = {"tris": int(len(Tl)), "morphs": sorted(mor)}
     log("eyes, brows, lashes done")
 
@@ -890,20 +1081,21 @@ def main():
         for long_ears in (False, True):
             if FAST and long_ears:
                 continue
-            Vr, Tr, UVr, Nr, mi = build_hair(style, long_ears)
+            Vr, Tr, UVr, Nr, mi, top, bottom = build_hair(style, long_ears)
             tag = f"Hair_{style}" + ("_LongEar" if long_ears else "")
-            pmh = corner_paintmap(Vr, Tr, UVr, Nr, 512)
-            mask = cp.paint_hair(pmh, spec["top"], spec["bottom"], spec["flow"])
+            pmh = corner_paintmap(Vr, Tr, UVr, Nr, 1024 if not FAST else 512)
+            mask = cp.paint_hair(pmh, top, bottom, spec["flow"])
             if not long_ears:
                 image(f"T_{tag}_Masks", mask)
             prevh = cp.hair_preview(mask, cp.hexrgb(spec["root"]), cp.hexrgb(spec["tip"]))
             img = image(f"T_{tag}_BaseColor", prevh)
             mats = [material(f"M_Lyris_{tag}", img, rough=0.55, spec=0.4)]
-            if spec["fn"] == "braid":
+            if style == "RopeBraid":
                 mats.append(material(f"M_Lyris_{tag}_Tie", colour=tuple(srgb_to_lin(cp.REDBAND)), rough=0.7))
-            mor = eval_morphs(Vr, Nr, HEAD_GROUPS, hair_extra_morphs(Vr, Nr, spec["bottom"]))
-            wr = skin_weights(Vr, hair_bones)
-            objs[tag] = make_object(f"SKM_Lyris_{tag}", Vr, Tr, UVr, Nr, wr, mor, mats, mi)
+            mor = eval_morphs(Vr, Nr, HEAD_GROUPS, hair_extra_morphs(Vr, Nr, bottom))
+            Vrx, mor = to_export(Vr, mor)
+            wr = skin_weights(Vrx, hair_bones)
+            objs[tag] = make_object(f"SKM_Lyris_{tag}", Vrx, Tr, UVr, Nr, wr, mor, mats, mi)
             meta["meshes"][tag] = {"tris": int(len(Tr)), "morphs": sorted(mor)}
 
     # ---- outfit
@@ -923,17 +1115,84 @@ def main():
 
     # ---- export
     for key, ob in objs.items():
+        meta["meshes"][key]["morphs"] = object_morphs(ob)
+    for key, ob in objs.items():
         export(f"SKM_Lyris_{key}", [ob])
     log("exported")
     with open(os.path.join(HERE, "character_meta.json"), "w") as f:
         json.dump(meta, f, indent=1)
     write_morph_table(meta)
+    for k, v in meta["meshes"].items():
+        print(f"  {k:40s} {v['tris']:6d} tris  {len(v['morphs']):3d} morphs")
 
+    cache = os.environ.get("LYRIS_SCENE_CACHE")
+    if cache:          # optional: keep the built scene to re-render previews (--previews-only)
+        bpy.ops.wm.save_as_mainfile(filepath=cache)
+    render_previews(objs)
+
+
+def render_previews(objs):
     import char_preview
     char_preview.render_all(objs, ARM, PEOPLE_LOOKS, HERE, TEX, fast=FAST)
     log("previews done")
-    for k, v in meta["meshes"].items():
-        print(f"  {k:40s} {v['tris']:6d} tris  {len(v['morphs']):3d} morphs")
+    before = load_before()
+    if before:
+        char_preview.render_compare(objs, before, HERE, fast=FAST)
+        log("before/after comparisons done")
+
+
+def previews_only():
+    """Re-renders the previews from a scene saved by a full run with LYRIS_SCENE_CACHE set."""
+    global ARM
+    bpy.ops.wm.open_mainfile(filepath=os.environ["LYRIS_SCENE_CACHE"])
+    ARM = bpy.data.objects["Armature"]
+    objs = {o.name.replace("SKM_Lyris_", ""): o for o in bpy.data.objects if o.name.startswith("SKM_Lyris_")}
+    render_previews(objs)
+
+
+BEFORE_DIR = os.environ.get("LYRIS_BEFORE_DIR", os.path.join(HERE, "before_T25"))
+
+
+def load_before():
+    """Imports the T25 meshes (for the before/after sheets) if a copy of them is in BEFORE_DIR
+    (default Art/Character/before_T25/, not committed): SKM_Lyris_*.glb plus textures/."""
+    if not os.path.isdir(BEFORE_DIR):
+        return {}
+    out = {}
+    names = ["Head", "Eyes", "Brows", "Lashes", "Body_FrameA", "Outfit_PlainTraveller_FrameA", "Hair_LamplighterBob"]
+    for key in names:
+        path = os.path.join(BEFORE_DIR, f"SKM_Lyris_{key}.glb")
+        if not os.path.exists(path):
+            continue
+        before_objs = set(bpy.data.objects)
+        bpy.ops.import_scene.gltf(filepath=path)
+        new = [o for o in bpy.data.objects if o not in before_objs]
+        for o in new:
+            if o.type == "MESH":
+                o.data.materials.clear()
+                tex = os.path.join(BEFORE_DIR, "textures")
+                img_name = {"Head": "T_Head_BaseColor", "Eyes": "T_Eyes_BaseColor", "Brows": "T_Brows_Natural",
+                            "Lashes": "T_Lashes_Natural", "Body_FrameA": "T_Body_FrameA_BaseColor",
+                            "Outfit_PlainTraveller_FrameA": "T_Outfit_PlainTraveller_FrameA_BaseColor",
+                            "Hair_LamplighterBob": "T_Hair_LamplighterBob_BaseColor"}[key]
+                img = bpy.data.images.load(os.path.join(tex, img_name + ".png"))
+                prefix = {"Head": "M_Lyris_Head", "Eyes": "M_Lyris_Eyes", "Brows": "M_Lyris_Brows",
+                          "Lashes": "M_Lyris_Lashes", "Body_FrameA": "M_Lyris_Body_FrameA",
+                          "Outfit_PlainTraveller_FrameA": "M_Lyris_Outfit_PlainTraveller_FrameA",
+                          "Hair_LamplighterBob": "M_Lyris_Hair_LamplighterBob"}[key]
+                m = material(prefix + "_Before", img, alpha=key in ("Brows", "Lashes"))
+                for _ in range(max(1, len(o.data.polygons) and 3)):
+                    o.data.materials.append(m)
+                out[key] = o
+            else:
+                o.hide_render = True
+    log(f"loaded {len(out)} T25 meshes for the before/after sheets")
+    return out
+
+
+def object_morphs(ob):
+    keys = ob.data.shape_keys
+    return sorted(kb.name for kb in keys.key_blocks[1:]) if keys else []
 
 
 def paint_piece_ids(pm, T, pid, uv):
@@ -994,7 +1253,7 @@ def write_morph_table(meta):
                  ("Hair.Length (part scalar)", "`Hair_Length_Pos`", "`Hair_Length_Neg`", "Hair_*", ""),
                  ("Hair.Volume (part scalar)", "`Hair_Volume_Pos`", "`Hair_Volume_Neg`", "Hair_*", "")]
     lines = [
-        "# Morph targets (T25)",
+        "# Morph targets (T25, T46)",
         "",
         "Generated by `make_character.py` (do not edit by hand). Names follow the **Morph** column of",
         "`design/character_creator.md` section 3: `Area_Name`, `_L` / `_R` for sides, and for two-way",
@@ -1036,6 +1295,26 @@ def write_morph_table(meta):
               "|---|---|---|---|---|"]
     for r in lash_rows:
         lines.append("| `%s` | %s | %s | %s | %s |" % r)
+    lines += ["", "## Face rig (T46): blinks, mouth and expressions", "",
+              "Not creator sliders: these are for the creator's expression and blink previews (spec 9.6) and for",
+              "animation. Each `Expr_<Name>` is a ready mix of the base shapes, so one weight plays a preset.",
+              "They live on the Head, Lashes and (brow parts) Brows; the eyes never move with them.", "",
+              "| Morph | What it does | Meshes |", "|---|---|---|"]
+    rig_doc = {
+        "Eye_Blink_L / _R": "upper lid closes down over the eye, lower lid rises to meet it",
+        "Eye_Squint_L / _R": "lower lid lifts, upper lid drops a little (smiling eyes)",
+        "Eye_Wide_L / _R": "lids open wider (surprise)",
+        "Mouth_Open": "jaw drops about 13 degrees, lips part to show the mouth interior",
+        "Mouth_Smile, Mouth_Smile_L / _R": "mouth corners rise and widen, cheeks lift",
+        "Mouth_Frown": "mouth corners turn down",
+        "Mouth_Press": "lips press a little thinner",
+        "Brow_Raise_L / _R, Brow_InnerUp, Brow_Furrow": "brow expressions",
+    }
+    for k, v in rig_doc.items():
+        lines.append(f"| `{k}` | {v} | Head, Lashes (lids), Brows (brows) |")
+    for name, mix in cf.PRESETS.items():
+        parts = ", ".join(f"{k} {w:g}" for k, w in mix.items())
+        lines.append(f"| `Expr_{name}` | preset: {parts} | Head, Lashes, Brows |")
     lines += ["", "## Not morphs", "", "| Slider | Why |", "|---|---|"]
     for k, v in cm.MATERIAL_SLIDERS.items():
         lines.append(f"| `{k}` | {v} (spec) |")
@@ -1049,4 +1328,7 @@ def write_morph_table(meta):
 
 
 if __name__ == "__main__":
-    main()
+    if "--previews-only" in sys.argv:
+        previews_only()
+    else:
+        main()

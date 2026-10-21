@@ -299,7 +299,7 @@ two_way("BrowRidge_Prom", "Forehead.BrowRidge", FACE,
 
 # ----------------------------------------------------------------------------- face: Eyes
 
-EYE_W, EYE_HU, EYE_HL = 1.98, 1.42, 0.78
+EYE_W, EYE_HU, EYE_HL = cs.EYE_W, cs.EYE_HU, cs.EYE_HL
 
 
 def eye_local(V, side):
@@ -310,18 +310,18 @@ def eye_local(V, side):
 
 def upper_curve(u):
     t = np.clip(u / EYE_W, -1, 1)
-    return EYE_HU * np.clip(1 - t * t, 0, 1) ** 0.62 * (1 - 0.10 * t) + 0.16 * t
+    return EYE_HU * np.clip(1 - t * t, 0, 1) ** 0.58 * (1 - 0.08 * t) + 0.18 * t
 
 
 def lower_curve(u):
     t = np.clip(u / EYE_W, -1, 1)
-    return -EYE_HL * np.clip(1 - t * t, 0, 1) ** 0.85 + 0.16 * t
+    return -EYE_HL * np.clip(1 - t * t, 0, 1) ** 0.8 + 0.18 * t
 
 
 def eye_core(V, side):
     """1 over the eye, its lids and socket; fades out before the brow and cheek."""
     q, _ = eye_local(V, side)
-    d = np.sqrt((q[:, 0] / 1.0) ** 2 + (q[:, 1] / 1.4) ** 2 + (q[:, 2] / 0.95) ** 2)
+    d = np.sqrt((q[:, 0] / 1.1) ** 2 + (q[:, 1] / 1.5) ** 2 + (q[:, 2] / 1.1) ** 2)
     return 1.0 - smoothstep(2.35, 3.8, d)
 
 
@@ -467,7 +467,7 @@ one_way("UnderEye_Full", "Eyes.UnderEyeFullness", EYE, under_eye)
 
 # ----------------------------------------------------------------------------- face: Brows
 
-BROW_C = {"l": _v(3.5, -7.4, 161.4), "r": _v(-3.5, -7.4, 161.4)}
+BROW_C = {"l": _v(3.5, -7.2, 162.5), "r": _v(-3.5, -7.2, 162.5)}
 
 
 def brow_w(V, side):

@@ -17,15 +17,43 @@ J, PARENTS, TAILS, HAND = rig.build_joints()
 
 # ----------------------------------------------------------------------------- landmarks
 
-EYE = {"l": v3(3.25, -6.15, 158.4), "r": v3(-3.25, -6.15, 158.4)}
-EYE_R = v3(2.05, 1.3, 1.8)          # eyeball half sizes (across, depth, up)
+EYE = {"l": v3(3.38, -5.95, 158.3), "r": v3(-3.38, -5.95, 158.3)}
+EYE_R = v3(2.32, 1.42, 2.08)          # eyeball half sizes (across, depth, up)
+EYE_W, EYE_HU, EYE_HL = 2.30, 1.80, 0.98   # eye opening: half width, upper and lower lid heights
 EYE_YAW = 16.0                        # outer side of each eye turns back with the face
 EAR = {"l": v3(7.55, 1.0, 156.4), "r": v3(-7.55, 1.0, 156.4)}
-NOSE_TIP = v3(0.0, -9.6, 154.9)
-MOUTH = v3(0.0, -8.0, 151.75)
-CHIN = v3(0.0, -6.6, 148.3)
-BROW = {"l": v3(3.45, -7.75, 161.2), "r": v3(-3.45, -7.75, 161.2)}
+NOSE_TIP = v3(0.0, -9.1, 155.0)
+MOUTH = v3(0.0, -7.95, 151.95)
+MOUTH_HALF = 1.12                     # half width of the mouth line
+CHIN = v3(0.0, -6.5, 148.4)
+BROW = {"l": v3(3.5, -7.5, 162.4), "r": v3(-3.5, -7.5, 162.4)}
 NECK_CUT_Z = 142.0                    # head / body seam (a ring round the neck)
+
+# The head is designed at 6.9 heads tall (crown 172) and then grown about the neck by
+# HEAD_SCALE (T46 art pass: 6.4 heads, a storybook adult). head_xform maps design space to
+# the exported mesh; below NECK_CUT_Z it is the identity, so the neck seam never moves.
+HEAD_SCALE = 1.16
+HEAD_PIVOT = v3(0.0, 1.0, NECK_CUT_Z)
+HEAD_BLEND = (NECK_CUT_Z, NECK_CUT_Z + 5.0)
+
+
+def head_k(V):
+    V = np.asarray(V, dtype=np.float64)
+    t = np.clip((V[:, 2] - HEAD_BLEND[0]) / (HEAD_BLEND[1] - HEAD_BLEND[0]), 0, 1)
+    t = t * t * (3 - 2 * t)
+    return 1.0 + (HEAD_SCALE - 1.0) * t
+
+
+def head_xform(V):
+    """Design space -> exported space for everything on the head."""
+    V = np.asarray(V, dtype=np.float64)
+    k = head_k(V)[:, None]
+    return HEAD_PIVOT.astype(np.float64) + (V - HEAD_PIVOT.astype(np.float64)) * k
+
+
+def head_xform_delta(V, D):
+    """Morph offsets authored in design space, carried into exported space."""
+    return np.asarray(D) * head_k(V)[:, None]
 
 
 def eye_rot(side):
@@ -45,11 +73,11 @@ def almond(P, side, grow=0.0):
     R = eye_rot(side)
     q = (P - EYE[side]) @ R            # u across (outward), depth, v up
     u, v = q[:, 0], q[:, 2]
-    W = 1.98 + grow
+    W = EYE_W + grow
     t = np.clip(u / W, -1, 1)
     # the upper lid peaks a little towards the nose, the outer corner sits a touch higher
-    hu = (1.42 + grow) * np.clip(1 - t * t, 0, 1) ** 0.62 * (1 - 0.10 * t) + 0.16 * t
-    hl = -(0.78 + grow) * np.clip(1 - t * t, 0, 1) ** 0.85 + 0.16 * t
+    hu = (EYE_HU + grow) * np.clip(1 - t * t, 0, 1) ** 0.58 * (1 - 0.08 * t) + 0.18 * t
+    hl = -(EYE_HL + grow) * np.clip(1 - t * t, 0, 1) ** 0.8 + 0.18 * t
     d = np.maximum(v - hu, hl - v)
     d = np.maximum(d, np.abs(u) - W)
     return d, q
@@ -59,36 +87,40 @@ def eyeball_sdf(P, side, grow=0.0):
     return ellipsoid(P, EYE[side], EYE_R + grow, eye_rot(side))
 
 
-def head_sdf(P):
+def head_sdf(P, closed=True):
     h = ellipsoid(P, v3(0, 0.9, 162.6), v3(8.2, 8.8, 9.4))                     # cranium
-    face = ellipsoid(P, v3(0, -2.2, 156.4), v3(6.9, 6.7, 7.4))
-    h = smin(h, face, 3.0)
-    h = smin(h, ellipsoid(P, v3(0, -5.0, 151.8), v3(3.4, 2.9, 2.6)), 2.0)                            # muzzle
+    face = ellipsoid(P, v3(0, -2.2, 156.4), v3(7.0, 6.8, 7.4))
+    h = smin(h, face, 3.2)
+    h = smin(h, ellipsoid(P, v3(0, -4.9, 151.9), v3(3.5, 2.9, 2.7)), 2.2)                            # muzzle
     for s in (1, -1):
-        h = smin(h, cone(P, v3(5.2 * s, -0.6, 155.0), v3(1.0 * s, -5.3, 148.8), 1.9, 1.1), 2.8)   # jaw
-        h = smin(h, ellipsoid(P, v3(3.5 * s, -5.2, 154.3), v3(2.6, 2.4, 2.3)), 2.4)                  # cheek
-    h = smin(h, ellipsoid(P, CHIN + v3(0, 1.2, 0.8), v3(1.6, 1.4, 1.3)), 1.6)                     # chin
-    h = smax(h, plane(P, v3(0, -8.9, 0), v3(0, -1, 0)), 2.4)                                         # soft front
-    h = smin(h, ellipsoid(P, v3(0, -6.0, 161.9), v3(5.4, 1.1, 1.3)), 3.8)                          # brow
-    # nose: a small soft wedge with a rounded button tip
-    nose = cone(P, v3(0, -7.6, 158.4), NOSE_TIP + v3(0, 0.7, 0.45), 0.32, 0.55)
-    nose = smin(nose, ellipsoid(P, NOSE_TIP + v3(0, 0.7, 0.05), v3(0.66, 0.62, 0.56)), 0.5)
-    nose = smin(nose, ellipsoid(P, NOSE_TIP + v3(0, 1.25, -0.25), v3(1.15, 0.55, 0.5)), 0.6)   # soft wings
-    h = smin(h, nose, 1.0)
+        h = smin(h, cone(P, v3(5.2 * s, -0.6, 155.0), v3(1.1 * s, -5.0, 149.0), 2.2, 1.45), 3.4)   # jaw, soft
+        h = smin(h, ellipsoid(P, v3(3.6 * s, -4.9, 153.9), v3(2.95, 2.75, 2.65)), 2.8)               # round cheek
+    h = smin(h, ellipsoid(P, CHIN + v3(0, 1.1, 0.85), v3(1.85, 1.5, 1.45)), 1.8)                   # round chin
+    h = smax(h, plane(P, v3(0, -9.25, 0), v3(0, -1, 0)), 3.6)                                        # very soft front
+    h = smin(h, ellipsoid(P, v3(0, -5.8, 162.7), v3(5.6, 1.05, 1.2)), 3.8)                          # brow
+    # nose: small and soft, a little button tip
+    nose = cone(P, v3(0, -7.3, 158.2), NOSE_TIP + v3(0, 0.6, 0.4), 0.24, 0.44)
+    nose = smin(nose, ellipsoid(P, NOSE_TIP + v3(0, 0.55, 0.05), v3(0.54, 0.5, 0.46)), 0.45)
+    nose = smin(nose, ellipsoid(P, NOSE_TIP + v3(0, 1.0, -0.22), v3(0.92, 0.45, 0.42)), 0.55)   # soft wings
+    h = smin(h, nose, 0.95)
     # lips: two small soft pillows
-    h = smin(h, ellipsoid(P, MOUTH + v3(0, 0.25, 0.3), v3(1.35, 0.3, 0.3)), 0.6)
-    h = smin(h, ellipsoid(P, MOUTH + v3(0, 0.35, -0.36), v3(1.1, 0.33, 0.36)), 0.6)
-    # neck
-    h = smin(h, cone(P, v3(0, 1.6, 136.0), v3(0, 0.9, 151.0), 4.9, 4.5), 2.6)
+    h = smin(h, ellipsoid(P, MOUTH + v3(0, 0.2, 0.27), v3(1.05, 0.28, 0.27)), 0.55)
+    h = smin(h, ellipsoid(P, MOUTH + v3(0, 0.3, -0.31), v3(0.9, 0.32, 0.32)), 0.55)
+    # neck (slim: the larger head is grown on top of it)
+    h = smin(h, cone(P, v3(0, 1.6, 136.0), v3(0, 0.9, 151.0), 4.9, 4.2), 2.6)
     # eye sockets: the almond opening, cut down to the eyeball, plus a soft upper lid
     for side in ("l", "r"):
         s = 1 if side == "l" else -1
-        h = smin(h, ellipsoid(P, EYE[side] + v3(0.1 * s, -0.8, 1.05), v3(2.15, 0.9, 0.8),
+        h = smin(h, ellipsoid(P, EYE[side] + v3(0.1 * s, -0.85, 1.4), v3(2.5, 0.95, 0.85),
                               eye_rot(side)), 0.9)
         a, q = almond(P, side)
         slot = np.maximum(a, np.maximum(q[:, 1] - 0.15, -q[:, 1] - 4.5))
         cavity = np.minimum(slot, eyeball_sdf(P, side, 0.06))
         h = smax(h, -cavity, 0.22)
+        if closed:
+            # the opening is filled by the eyeball's own surface, so the head stays one closed
+            # surface for quad remeshing; char_mesh.cut_eye_holes then opens it on a clean loop
+            h = smin(h, eyeball_sdf(P, side, 0.06), 0.04)
     return h
 
 
@@ -126,7 +158,7 @@ def _limb_parts(P, f, which):
             fingers = None
             for fn_ in rig.FINGERS:
                 chain = [J[f"{fn_}_0{i}_{side}"] for i in (1, 2, 3)] + [TAILS[f"{fn_}_03_{side}"]]
-                r0 = {"index": 0.70, "middle": 0.72, "ring": 0.68, "pinky": 0.60}[fn_] * k
+                r0 = {"index": 0.64, "middle": 0.66, "ring": 0.62, "pinky": 0.55}[fn_] * k
                 radii = [r0, r0 * 0.93, r0 * 0.86, r0 * 0.8]
                 fd = tube(P, chain, radii, 0.25)
                 fingers = fd if fingers is None else np.minimum(fingers, fd)
@@ -174,7 +206,7 @@ def torso_sdf(P, f):
     return t
 
 
-def body_sdf(P, frame_id, with_head=True):
+def body_sdf(P, frame_id, with_head=True, closed=True):
     f = FRAMES[frame_id]
     d = torso_sdf(P, f)
     parts = _limb_parts(P, f, ("arm", "hand", "leg", "foot"))
@@ -191,7 +223,7 @@ def body_sdf(P, frame_id, with_head=True):
     capped = smax(d, P[:, 2] - (NECK_CUT_Z - 1.6), 1.4)
     d = d * (1 - t) + capped * t
     if with_head:
-        d = smin(d, head_sdf(P), 1.5)
+        d = smin(d, head_sdf(P, closed), 1.5)
     return d
 
 
@@ -204,14 +236,14 @@ def shared_neck_weight(P):
     return (a * a * (3 - 2 * a)) * (b * b * (3 - 2 * b))
 
 
-def frame_sdf(P, frame_id):
-    d = body_sdf(P, frame_id)
+def frame_sdf(P, frame_id, closed=True):
+    d = body_sdf(P, frame_id, closed=closed)
     if frame_id == "FrameA":
         return d
     w = shared_neck_weight(P)
     m = w > 0
     if m.any():
-        d[m] = d[m] * (1 - w[m]) + body_sdf(P[m], "FrameA") * w[m]
+        d[m] = d[m] * (1 - w[m]) + body_sdf(P[m], "FrameA", closed=closed) * w[m]
     return d
 
 
@@ -253,7 +285,7 @@ def ear_outline(theta, shape):
     return r
 
 
-EAR_NT, EAR_NR = 48, 6
+EAR_NT, EAR_NR = 40, 5
 
 
 def ear_topology():
@@ -386,6 +418,11 @@ def outfit_sdfs(P, frame_id):
     pelv = torso - 1.25
     pelv = smax(pelv, P[:, 2] - 101.5, 0.6)
     trousers = smin(pelv, smax(legs, P[:, 2] - 95.0, 2.0), 3.5)
+    # follow the actual body (its hip and thigh blends) so no skin shows at the hips
+    whole = body_sdf(P, frame_id, with_head=False) - 1.1
+    whole = smax(whole, np.abs(P[:, 0]) - 21.0, 0.5)
+    whole = smax(whole, P[:, 2] - 101.5, 0.6)
+    trousers = smin(trousers, whole, 0.6)
     trousers = smax(trousers, 24.0 - P[:, 2], 0.5)
     out["trousers"] = trousers
     # belt over the trouser waist
