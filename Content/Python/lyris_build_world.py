@@ -41,7 +41,7 @@ import struct
 
 import unreal
 
-BUILD_VERSION = 3  # 2: landmarks and new island lamps (T36). 3: one sea (T19 clipmap, no Water ocean), boat, dock
+BUILD_VERSION = 4  # 4: sea builds again (struct fix). 2: landmarks and new island lamps (T36). 3: one sea (T19 clipmap, no Water ocean), boat, dock
                    # point, mooring and dock lamp in Moonharbor, player start on Lantern Pier (T37)
 TERRAIN_MAT_VERSION = 1  # versions the terrain material and its textures separately from the actors
 MAP_PATH = "/Game/Lyris/Maps/Lyris"
@@ -504,6 +504,15 @@ _SEA_INPUTS = ["P", "Cam", "OceanTime", "EngineTime", "SeaLevel", "CalmAmplitude
                "CalmZone0", "CalmZone1", "CalmZone2", "CalmZone3"]
 
 
+def _struct(cls, **props):
+    """Make an unreal struct and set its properties one by one. Some structs (CollectionScalarParameter,
+    CollectionVectorParameter, CustomInput) take no constructor arguments in UE 5.8 Python."""
+    st = cls()
+    for k, v in props.items():
+        st.set_editor_property(k, v)
+    return st
+
+
 def _make_sea_collection():
     """MPC_Sea with exactly the contract's parameter names (see OCEAN_CONTRACT.md)."""
     # OceanTime -1 = "no ocean clock yet": the material then runs on engine time (see _sea_hlsl).
@@ -542,9 +551,9 @@ def _make_sea_collection():
         mpc = tools.create_asset(name, folder, unreal.MaterialParameterCollection,
                                  unreal.MaterialParameterCollectionFactoryNew())
     mpc.set_editor_property("scalar_parameters", [
-        unreal.CollectionScalarParameter(parameter_name=n, default_value=v) for n, v in scalars])
+        _struct(unreal.CollectionScalarParameter, parameter_name=n, default_value=v) for n, v in scalars])
     mpc.set_editor_property("vector_parameters", [
-        unreal.CollectionVectorParameter(parameter_name=n, default_value=unreal.LinearColor(*v)) for n, v in vectors])
+        _struct(unreal.CollectionVectorParameter, parameter_name=n, default_value=unreal.LinearColor(*v)) for n, v in vectors])
     unreal.EditorAssetLibrary.save_loaded_asset(mpc)
     return mpc
 
@@ -878,7 +887,7 @@ def _make_sea_material():
         node.set_editor_property("output_type", out_type)
         node.set_editor_property("code", code)
         wired = [(n, shared[n], "") for n in _SEA_INPUTS] + list(extra or [])
-        node.set_editor_property("inputs", [unreal.CustomInput(input_name=n) for n, _, _ in wired])
+        node.set_editor_property("inputs", [_struct(unreal.CustomInput, input_name=n) for n, _, _ in wired])
         for n, src, pin in wired:
             g.link(src, node, pin, n)
         return node
