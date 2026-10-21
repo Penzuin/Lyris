@@ -191,6 +191,108 @@ with mips; the rest 512²), one shared triplanar for rock, no paint layers.
 (plus the island grass texture's highlight `D3DE8A`). The new biomes' textures (`textures/snow.png` ...)
 use their own ramps, but only their luminance reaches the game.
 
+## 5. World foliage (T51)
+
+The starter island's Genshin-style trees, bushes, grass and flowers over the whole world, placed by the
+terrain. Everything is generated from scripts in `foliage/`; only the scripts and the preview images
+are in git.
+
+| What | Where |
+|---|---|
+| Species (meshes, LOD0..3) | `foliage/species.py` (builders), `foliage/make_species.py` (writes `meshes/*.glb`, `species.json`) |
+| Painted atlases | `foliage/textures.py` (world leaf and plant atlases, charred bark, plus the island's tiles) |
+| Foliage colours | `foliage/palette.py` (island FOLIAGE_COLOURS plus the biome species; new tones marked NEW) |
+| Scatter over the baked terrain | `foliage/scatter.py` (writes `scatter/cells/*.bin`, `summary.json`, `grass_tint.png`, `density.jpg`) |
+| Look-dev previews | `foliage/render_previews.py` (needs `pip install numba`), output in `foliage/previews/` |
+| Editor build | `Content/Python/lyris_world_foliage.py` (`build()`, `clear()`, `report()`) |
+
+### Make it
+
+    python Art/World/bake_terrain.py --workers 2      # the terrain (section 1), if not done
+    python Art/World/foliage/make_species.py          # ~1 min
+    python Art/World/foliage/scatter.py               # ~5-8 min, ~1.5 GB RAM
+
+Then in the editor `import lyris_build_world as w; w.build()` runs the foliage step, or on its own
+`import lyris_world_foliage as f; f.build()`. It is incremental: it imports only missing assets, skips cells
+already planted with the same scatter (read from World Partition descriptors, without loading them),
+plants 12 cells per batch behind a cancellable progress bar, saves and unloads after each batch, and
+starts nearest Moonharbor. Cancel or close the editor and the next `build()` continues. A new scatter
+(or a FOLIAGE_VERSION bump) changes the actor labels' signature, so the next build replaces the old
+cells. `f.clear()` removes only its own actors (tag `LyrisWorldFoliage`, label `LWF_*`), in batches.
+After planting: **Build > Build HLODs** for the distant forests.
+
+### Species
+
+All built like the island trees: overlapping inflated shells with cut-out leaf-clump cards, normals from
+the canopy centre (one soft lit form), UV1 = (depth, height) for dark-inside and the top-down gradient,
+UV2 = (random, kind) for colour variation and wind phase; trunks taper, flare and curve. 2 to 4 variants each.
+
+| Group | Species (where) |
+|---|---|
+| Trees | oak, birch, pine, blossom (island designs); cherry (Greengrace groves, cherry-grove biome); snow pine with snow-dusted tops (snowy north, above 170 m); cypress and darkwood, a tall twisted sycamore-like tree (Sunreach's dark forest, swamps, jungle); olive (Sunreach plains, savanna); charred dead tree (volcanic ground, badlands); boulders |
+| Understory | bush (plain, berries, wide), frosted shrub (snow), thorny scrub (Saltreach badlands), sage (desert), lavender (Reach meadows), reeds (lake and river margins), ferns and mushrooms (under canopy; mushroom fields), glowing vent moss (volcanic), rocks, pebbles, salt-white crystals (salt flats, Glass Dunes) |
+| Grass types | meadow grass (two heights), wildflowers in cream / pink / butter / lavender, wheat-gold tufts, ground fern, clover and leaf litter, dune grass |
+
+Triangles per LOD (mean): trees 2060 / 806 / 382 / 97; understory 270 / 126 / 63 / 36; grass clumps 6 to 21.
+Rocks, boulders, crystals, pebbles and dead trees are Nanite (opaque, no wind); everything with leaves
+or wind is a classic mesh with these authored LODs.
+
+### How the scatter reads the terrain
+
+Tree density comes from the Forest paint layer, blurred for soft edges and shaped by two octaves of
+low-frequency noise into groves and clearings. Hard limits: no trees on water, beaches (Sand layer or
+within 22 m of the sea), slopes over 35 degrees (fading from 28), or above 245 m; snow pines from 170 m
+and on snow. Open biomes the Forest layer misses get light woods of their own (snowy plains, savanna,
+cherry grove, pale garden ...), meadows get small copses and lone trees on hilltops, rivers get avenues
+6 to 16 m back from the bank. The Minecraft biome (bidx.png, jittered 35 m so borders interleave) and
+region pick the species: Greengrace mixes in cherry, Sunreach's open ground is olive country.
+Understory: bushes along forest edges, ferns and mushrooms in the shade, reeds on margins, lavender in
+loose meadow patches, rocks on steep ground, boulders on hillsides, crystals on salt, vent moss and
+charred trees on volcanic ground. Moonharbor (600 m round the Moonwell) and every canon landmark's
+footprint (+7 m) stay clear, so the North Road is a clear lane. Spacing is Poisson-like: jittered-grid
+candidates thinned by the density, then any pair closer than the species' spacing drops one.
+
+`scatter/grass_tint.png` (1024 px over the world) tints the landscape grass: lush green, wheat gold on
+Sunreach's open plains and savanna, dusty on badlands and salt, frosted near snow. Its alpha is dryness:
+wheat tufts only show where it is high, wildflowers only where it is low and inside soft noise patches.
+
+### Budget (RTX 4060, 8 GB)
+
+Last scatter (preview bake, seed 5150): **1.69 million instances: 539 000 trees and boulders, 1.15
+million understory**, in 2424 cells of 256 m; 4200 trees per km2 of land (128.6 km2), dense groves
+about 190 per hectare. Per cell: mean 222 trees, 698 instances and 17 components; max 895 trees,
+2254 instances, 36 components.
+
+* **Streaming.** Each cell holds two spatially loaded actors with one HISM component per mesh variant.
+  With the world's 256 m grid loaded to 1.5 km, about 110 cells are live: ~77 000 instances and ~1900
+  components. Instance data is about 0.2 KB each on CPU and GPU together, so ~15 MB live.
+* **Distance.** Trees switch LOD by screen size (LOD3 is ~100 triangles of plain shells). Beyond the
+  1.5 km loading range trees come from HLOD, never live instances: HLOD_LyrisTrees is an *Instancing*
+  layer (the same meshes at their far LOD, out to ~4 km, which is also the trees' instance cull distance)
+  and its parent HLOD_LyrisTreesFar is *Mesh Approximate* (one simplified Nanite mesh per big cell) for
+  the rest of the world. Understory actors are excluded from HLOD and fade out by species: bushes at 320 m,
+  rocks and crystals 500 m, ferns 150 m, mushrooms 90 m.
+* **Frame.** Standing in a dense forest: ~40 trees at LOD0, ~250 at LOD1, ~2000 at LOD2, the rest at LOD3,
+  about 3 to 4 million triangles before shadows. Wind (World Position Offset) stops at 90 m for trees and
+  45 m for understory, so Virtual Shadow Map pages stay cached beyond that; small plants cast no shadow.
+* **Grass.** Landscape Grass Types are generated on the GPU near the camera only (density per 10 x 10 m:
+  meadow grass 260 + 110, wheat 45, each flower colour 7; forest floor 35 ferns + 90 clover + 60 grass;
+  dune grass 45 + 25), culled at 40 to 60 m: roughly 30 000 clumps and well under a million triangles.
+* **Memory.** Meshes ~20 MB, textures ~15 MB (512 px tiles and 1024 x 512 atlases), live instances ~15 MB,
+  HLOD a few tens of MB: comfortably under 150 MB of the 8 GB.
+
+Why not Nanite for the trees: masked, two-sided cards with wind are Nanite's slow path (programmable
+raster, WPO), and Nanite Foliage (assemblies, voxels, skinned wind, UE 5.7) is still experimental. HISM with
+authored LODs is predictable on 8 GB. When Nanite Foliage is production-ready, the same species can be
+rebuilt as assemblies of one branch and one leaf clump.
+
+### Looking at it
+
+`foliage/previews/` holds software renders that imitate the materials (look checks, not the game's lighting):
+`forest_edge`, `meadow`, `greengrace`, `sunreach_plains`, `saltreach_scrub`, `snowy_pines`,
+`valley_aerial`, the species line-ups `lineup_trees` and `lineup_understory`, and `world_density`
+(dark green = trees, light green = understory).
+
 ## If the editor freezes or runs out of video memory
 
 **Freezes during `w.build()`.** Rebuilds no longer delete everything at once, but:
