@@ -145,6 +145,52 @@ script.
 (139.5, 66.2, -2414), and TargetPoints `T37_BoatStart` (147, -2404, sea level, facing north),
 `T37_DockLamp`, `T37_Mooring` and `T37_StepAshore` in `Landmarks/Moonharbor/LanternPier/Markers`.
 
+## 4. Terrain look (T50): the starter island's texturing over the whole world
+
+The landscape is imported from the heightmap only, so its material cannot use paint layers.
+`M_LyrisWorldTerrain_v2` (`Content/Python/lyris_world_terrain.py`) reads the biome of every point from
+two world-space maps instead, and everything else from height, slope and painted noise, in the
+starter island's style: one palette (`ISLAND_PALETTE` / `LAYER_LOOK`), painted textures only adding
+light and dark detail at 4 m and ~15 m, warm stone with lavender shadows on anything steeper than
+~37 degrees (textured from three sides), grass only on the flat tops of rock, sand shelves at the
+waterline, a wet tide line, rippled seabed that darkens and cools with depth, sunny meadows, drier
+hills and lush valleys over kilometres, the warm-to-cool drift, matte roughness (0.94).
+
+**Once, after the terrain bake** (numpy + pillow, about 30 s):
+
+    python Art/World/bake_biome_maps.py      # tiles/World_<Layer>_*.png -> biome/T_LyrisBiomeA/B.png
+
+**In the editor**, with the Lyris map open (Output Log, Python):
+
+    import lyris_world_terrain as t; t.build(); t.apply()
+
+`build()` imports the two biome maps and the three painted packs from `textures/` and builds the
+material; `apply()` puts it on the landscape and its loaded proxies (proxies that load later inherit
+it from the landscape) and saves. `w.build()` runs both as its `terrain_look` step.
+After a new terrain bake: rerun `bake_biome_maps.py`, then `t.build(reimport=True)`.
+`t.build(force=True)` rebuilds the graph; bump `TERRAIN_LOOK_VERSION` when you change the look.
+
+| File | What |
+|---|---|
+| `bake_biome_maps.py` -> `biome/` (not in git) | 4096² RGBA: A = Grass Forest Sand Rock, B = Snow Badlands Salt Volcanic; `biome_maps.json` has the world bounds and orientation |
+| `paint_world_textures.py` -> `textures/` | snow, strata, salt, basalt and seabed painted in the island's style (`Art/TestIsland/paint_textures.py`), and the packs the material reads: `T_LyrisDetailA` (grass sand cliff seabed) and `T_LyrisDetailB` (snow strata salt basalt) hold each texture's luminance around its mean; `T_LyrisWorldNoise` holds four soft noises |
+| `preview_terrain_look.py` | numpy twin of the material on the baked tiles: `preview_look.jpg` (whole world) and 2 km close-ups `preview_moonharbor.jpg`, `preview_saltreach.jpg`, `preview_north.jpg` |
+
+**Grass (T51).** When `/Game/Lyris/World/Foliage/GT_Meadow`, `GT_Forest` and `GT_Dune` exist, `build()`
+adds a Landscape Grass Output with those three entries (weights: meadow and rocky flats, forest floor,
+sand above the shore; all on ground under ~25 degrees and clear of the sea). Before they exist the
+material is built without it; run `t.build()` again afterwards and it is added. If the log says the
+Grass Output could not be filled from Python, open the material, add a **Landscape Grass Output**
+node with entries Meadow, Forest, Dune, pick the grass types and wire the `Meadow`, `Forest` and `Dune`
+weights (the three Multiply nodes feeding nothing at the end of the graph).
+
+**Cost** (8 GB GPUs): 12 texture samples from 5 small textures (biome maps BC-compressed, ~21 MB each
+with mips; the rest 512²), one shared triplanar for rock, no paint layers.
+
+**New colours.** None in the material: every hex is from `PALETTE`, `ISLAND_PALETTE` or `LAYER_LOOK`
+(plus the island grass texture's highlight `D3DE8A`). The new biomes' textures (`textures/snow.png` ...)
+use their own ramps, but only their luminance reaches the game.
+
 ## If the editor freezes or runs out of video memory
 
 **Freezes during `w.build()`.** Rebuilds no longer delete everything at once, but:
