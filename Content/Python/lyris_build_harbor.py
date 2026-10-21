@@ -12,13 +12,16 @@ bumping BUILD_VERSION is how a new layout reaches the project.
 Manual rebuild (Output Log, Python):  import lyris_build_harbor as h; h.build(force=True)
 """
 
+import array
 import json
 import math
 import os
+import struct
+import zlib
 
 import unreal
 
-BUILD_VERSION = 8
+BUILD_VERSION = 9
 MAP_PATH = "/Game/Lyris/Maps/Harbor"
 MAT_DIR = "/Game/Lyris/Materials/Prototype"
 MARKER_PREFIX = "LyrisBuild_v"
@@ -38,6 +41,11 @@ PALETTE = {
     "Stone":      ("9C9488", 0.9, 0.0),
     "Leaf":       ("6E8A3A", 0.85, 0.0),
     "Shallows":   ("7FD0D6", 0.1, 0.0),
+    # Sea (T19): painted bands from trough to crest, a cream foam that matches Salt and Sail.
+    "SeaTrough":  ("1F6A80", 0.2, 0.0),
+    "Sea":        ("2E8A9C", 0.18, 0.0),
+    "SeaCrest":   ("5DB8C2", 0.16, 0.0),
+    "SeaFoam":    ("F4EEE0", 0.8, 0.0),
 }
 MOONGLASS = "7AC0E6"  # cold lamp light, Quiet Reach palette
 
@@ -104,35 +112,429 @@ def _make_material(name, hex_str, roughness, metallic, emissive=0.0):
     return mat
 
 
-def _make_sea_material():
-    """Deep teal that turns pale turquoise at glancing angles, glossy for sun glints."""
-    path = f"{MAT_DIR}/M_Sea"
-    if unreal.EditorAssetLibrary.does_asset_exist(path):
-        return unreal.load_asset(path)
-    mat = _new_material("M_Sea")
-    mel = unreal.MaterialEditingLibrary
-    deep = mel.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -700, -100)
-    deep.set_editor_property("constant", _linear("2E8A9C"))
-    shallow = mel.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -700, 50)
-    shallow.set_editor_property("constant", _linear("7FD0D6"))
+# ----------------------------------------------------------------------------- sea (T19)
+# The sea surface draws the same Gerstner waves the boat and swimmer feel (T17,
+# Source/Lyris/World/OCEAN_CONTRACT.md). ULyrisOceanSubsystem writes the wave values into MPC_Sea
+# every tick; the material reads them from there, so visuals never drift from physics.
+#
+#   MPC_Sea   made here with exactly the contract's names; defaults = the contract's calm waves and
+#             the home calm zone, so the sea already has its shape before the C++ is compiled.
+#   mesh      a generated square clipmap: a 64 m core at 50 cm, then six rings, each twice as coarse
+#             and twice as wide (out to 2 km from the camera). The material slides it under the
+#             camera in 32 m steps (a multiple of every ring's cell, so vertices land on the lattice
+#             and the waves never swim). Ring seams are stitched, so no cracks.
+#   shading   painted bands from trough to crest, pale shallows and a lapping foam band from a
+#             ground-height map of the island, soft broken foam where crests get steep.
+
+SEA_MPC_PATH = "/Game/Lyris/Materials/MPC_Sea"
+SEA_MESH_DIR = f"/Game/Lyris/Meshes/Sea_v{BUILD_VERSION}"
+SEA_TEXTURE_DIR = f"/Game/Lyris/Textures/Sea_v{BUILD_VERSION}"
+SEA_UNIT = 50.0             # cm: cell size of the core grid
+SEA_CORE_CELLS = 64         # core half-size in cells (64 x 50 cm = 32 m)
+SEA_RINGS = 6               # rings around the core, each 2x coarser and 2x wider
+SEA_SNAP = SEA_UNIT * 2 ** SEA_RINGS            # 32 m: the coarsest cell, so every ring stays on its lattice
+SEA_HALF = SEA_UNIT * SEA_CORE_CELLS * 2 ** SEA_RINGS  # 2048 m from the camera to the mesh edge
+SEA_FADE_VERTEX = 8.0       # a wave shrinks away between 8 and 16 wavelengths from the camera in the mesh ...
+SEA_FADE_PIXEL = 16.0       # ... and between 16 and 32 in the shading normal (no shimmer, no aliasing)
+SEA_GROUND_MIN, SEA_GROUND_MAX = -400.0, 100.0  # cm range stored in the ground-height map
+SEA_GROUND_PX = 256
+SEA_GROUND_EXTENT = 3200.0  # the ground map covers -3200..3200 cm, the island grid (island_meta.json)
+
+# Contract defaults: (yaw deg, wavelength cm, amplitude cm, steepness) and the home calm zone.
+SEA_DEFAULT_WAVES = [(30.0, 6000.0, 45.0, 0.35), (75.0, 3100.0, 22.0, 0.30),
+                     (-20.0, 1700.0, 10.0, 0.25), (120.0, 900.0, 4.0, 0.20)]
+SEA_DEFAULT_CALM_ZONES = [(0.0, 0.0, 6000.0, 4000.0)]
+SEA_DEFAULT_CALM_SCALE = 0.25
+
+_SEA_INPUTS = ["P", "Cam", "OceanTime", "EngineTime", "SeaLevel", "CalmAmplitudeScale",
+               "Wave0", "Wave1", "Wave2", "Wave3", "WaveSteepness",
+               "CalmZone0", "CalmZone1", "CalmZone2", "CalmZone3"]
+
+
+def _make_sea_collection():
+    """MPC_Sea with exactly the contract's parameter names (see OCEAN_CONTRACT.md)."""
+    # OceanTime -1 = "no ocean clock yet": the material then runs on engine time (see _sea_hlsl).
+    scalars = [("OceanTime", -1.0), ("SeaLevel", 0.0), ("CalmAmplitudeScale", SEA_DEFAULT_CALM_SCALE)]
+    vectors = []
+    for i, (yaw, length, amp, _steep) in enumerate(SEA_DEFAULT_WAVES):
+        rad = math.radians(yaw)
+        vectors.append((f"Wave{i}", (math.cos(rad), math.sin(rad), length, amp)))
+    vectors.append(("WaveSteepness", tuple(w[3] for w in SEA_DEFAULT_WAVES)))
+    for i in range(4):
+        zone = SEA_DEFAULT_CALM_ZONES[i] if i < len(SEA_DEFAULT_CALM_ZONES) else (0.0, 0.0, 0.0, 0.0)
+        vectors.append((f"CalmZone{i}", zone))
+
+    folder, name = SEA_MPC_PATH.rsplit("/", 1)
+    if unreal.EditorAssetLibrary.does_asset_exist(SEA_MPC_PATH):
+        mpc = unreal.load_asset(SEA_MPC_PATH)
+        have = ([str(p.get_editor_property("parameter_name")) for p in mpc.get_editor_property("scalar_parameters")]
+                + [str(p.get_editor_property("parameter_name")) for p in mpc.get_editor_property("vector_parameters")])
+        if have == [n for n, _ in scalars] + [n for n, _ in vectors]:
+            return mpc  # already right; keep its parameter ids so nothing that uses it needs a recompile
+    else:
+        tools = unreal.AssetToolsHelpers.get_asset_tools()
+        mpc = tools.create_asset(name, folder, unreal.MaterialParameterCollection,
+                                 unreal.MaterialParameterCollectionFactoryNew())
+    mpc.set_editor_property("scalar_parameters", [
+        unreal.CollectionScalarParameter(parameter_name=n, default_value=v) for n, v in scalars])
+    mpc.set_editor_property("vector_parameters", [
+        unreal.CollectionVectorParameter(parameter_name=n, default_value=unreal.LinearColor(*v)) for n, v in vectors])
+    unreal.EditorAssetLibrary.save_loaded_asset(mpc)
+    return mpc
+
+
+def _sea_hlsl(fade, body):
+    """Custom-node HLSL: evaluates the contract's Gerstner sum at the undisplaced point p, then runs
+    `body`. Matches ULyrisOceanSubsystem::EvaluateAt term for term; the only addition is the distance
+    fade, which leaves every wave untouched within 8 wavelengths of the camera (72 m for the shortest
+    default wave) and only calms waves too small for the far rings to draw."""
+    return f"""
+float2 snap = floor(Cam.xy / {SEA_SNAP:.1f} + 0.5) * {SEA_SNAP:.1f};
+float2 p = P.xy + snap;
+// OceanTime is the clock (T17). Its default in MPC_Sea is -1, which only happens before the C++
+// runs (it always writes >= 0), so until then the sea runs on engine time instead of standing still.
+float t = OceanTime >= 0.0 ? OceanTime : EngineTime;
+
+// Roughness r(p) = 1 - max over used zones of (1 - smoothstep(Radius, Radius + Falloff, |p - Center|)).
+float4 zones[4] = {{ CalmZone0, CalmZone1, CalmZone2, CalmZone3 }};
+float calm = 0.0;
+[unroll] for (int j = 0; j < 4; j++)
+{{
+    float4 z = zones[j];
+    if (z.z > 0.0)
+    {{
+        float d = length(p - z.xy);
+        float u = z.w > 0.0 ? saturate((d - z.z) / z.w) : (d >= z.z ? 1.0 : 0.0);
+        calm = max(calm, 1.0 - u * u * (3.0 - 2.0 * u));
+    }}
+}}
+float rough = 1.0 - calm;
+float m = lerp(saturate(CalmAmplitudeScale), 1.0, rough);
+
+float4 waves[4] = {{ Wave0, Wave1, Wave2, Wave3 }};
+float steep[4] = {{ WaveSteepness.x, WaveSteepness.y, WaveSteepness.z, WaveSteepness.w }};
+float camDist = length(p - Cam.xy);
+float3 off = float3(0.0, 0.0, 0.0);
+float3 n = float3(0.0, 0.0, 1.0);
+float jxx = 1.0, jyy = 1.0, jxy = 0.0, ampSum = 0.0;
+[unroll] for (int i = 0; i < 4; i++)
+{{
+    float4 w = waves[i];
+    float k = 6.28318530718 / max(w.z, 1.0);
+    float omega = k * sqrt(980.0 / k);
+    float A0 = max(w.w, 0.0);
+    float Q = A0 > 1e-6 ? saturate(steep[i]) / (k * A0 * 4.0) : 0.0;
+    float A = A0 * m * saturate(2.0 - camDist / ({fade:.1f} * max(w.z, 1.0)));
+    float s, c;
+    sincos(k * dot(w.xy, p) - omega * t, s, c);
+    float kA = k * A;
+    off.xy += w.xy * (Q * A * c);
+    off.z += A * s;
+    n.x -= w.x * kA * c;
+    n.y -= w.y * kA * c;
+    n.z -= Q * kA * s;
+    jxx -= Q * kA * w.x * w.x * s;
+    jyy -= Q * kA * w.y * w.y * s;
+    jxy -= Q * kA * w.x * w.y * s;
+    ampSum += A0;
+}}
+n = normalize(n);
+{body}
+"""
+
+
+# World Position Offset: move the lattice under the camera, then displace it.
+_SEA_OFFSET_BODY = "return float3(snap + off.xy, SeaLevel + off.z - P.z);"
+
+# World-space shading normal (the material uses world-space normals).
+_SEA_NORMAL_BODY = "return n;"
+
+# Base colour (rgb) and foam amount (a).
+_SEA_SHADE_BODY = f"""
+// Value noise for brush-like breakup (macros: a Custom node body cannot hold helper functions).
+#define LYRIS_SEA_HASH(q) frac(sin(dot(fmod(q, 512.0), float2(127.1, 311.7))) * 43758.5453)
+#define LYRIS_SEA_NOISE(OUT, Q) {{ float2 nq = (Q); float2 ni = floor(nq); float2 nf = frac(nq); nf = nf * nf * (3.0 - 2.0 * nf); OUT = lerp(lerp(LYRIS_SEA_HASH(ni), LYRIS_SEA_HASH(ni + float2(1, 0)), nf.x), lerp(LYRIS_SEA_HASH(ni + float2(0, 1)), LYRIS_SEA_HASH(ni + float2(1, 1)), nf.x), nf.y); }}
+float nBrush, nCrest, nShore;
+LYRIS_SEA_NOISE(nBrush, p / 900.0 + t * float2(0.010, 0.006))
+LYRIS_SEA_NOISE(nCrest, p / 160.0 + t * float2(0.05, 0.03))
+LYRIS_SEA_NOISE(nShore, p / 120.0 - t * 0.04)
+#undef LYRIS_SEA_NOISE
+#undef LYRIS_SEA_HASH
+
+// Painted bands from trough to crest, with a soft brush mottling that drifts with the swell.
+float h01 = saturate(0.5 + 0.8 * off.z / max(ampSum, 1.0));
+float brush = nBrush - 0.5;
+float tone = saturate(h01 + brush * 0.16);
+tone = lerp(tone, floor(tone * 4.0 + 0.5) / 4.0, 0.3);
+float3 col = lerp(lerp(Trough, Mid, saturate(tone * 2.0)), Crest, saturate(tone * 2.0 - 1.0));
+
+// Paler toward the horizon and at grazing angles.
+float fres = pow(1.0 - saturate(dot(n, normalize(CamVec))), 4.0);
+col = lerp(col, Crest, fres * 0.45);
+
+// Shallows: water depth over the island's ground, measured at the moving surface.
+float inMap = all(abs(p) < {SEA_GROUND_EXTENT:.1f}) ? 1.0 : 0.0;  // beyond the island map it is open sea
+float ground = lerp({SEA_GROUND_MIN:.1f}, Ground * {SEA_GROUND_MAX - SEA_GROUND_MIN:.1f} + ({SEA_GROUND_MIN:.1f}), inMap);
+float depth = SeaLevel + off.z - ground;
+col = lerp(col, Shallow, (1.0 - smoothstep(30.0, 300.0, depth)) * 0.85);
+
+// Crest foam where the surface bunches up (Jacobian of the horizontal motion), broken up like brushwork.
+float jac = jxx * jyy - jxy * jxy;
+float crest = saturate((0.9 - jac) / 0.12) * smoothstep(0.55, 0.8, h01);
+float crestFoam = saturate((crest - nCrest * 0.6) * 2.0);
+
+// Shoreline: a soft rim at the waterline plus lapping bands that roll in.
+float rim = 1.0 - smoothstep(0.0, 45.0, depth);
+float lap = smoothstep(0.62, 0.9, sin(depth * 0.05 - t * 1.4) * 0.5 + 0.5) * (1.0 - smoothstep(30.0, 170.0, depth));
+float shore = saturate(rim + lap * 0.8) * saturate(depth * 0.1 + 1.0);
+shore *= smoothstep(0.15, 0.55, nShore + rim * 0.5);
+
+float foam = saturate(max(crestFoam, shore));
+return float4(lerp(col, Foam, foam), foam);
+"""
+
+
+def _sea_rings():
+    """The clipmap lattice. Returns (points, triangles); points are (ix, iy) in SEA_UNIT steps,
+    triangles index into points and face up (+Z). Ring seams get a midpoint vertex so the finer
+    side's extra vertices are shared, never T-junctions."""
+    index, points, tris = {}, [], []
+
+    def vid(key):
+        i = index.get(key)
+        if i is None:
+            i = index[key] = len(points)
+            points.append(key)
+        return i
+
+    def tri(a, b, c):
+        # Face up: in Unreal's left-handed XY that is clockwise seen from above.
+        cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        if cross > 0:
+            b, c = c, b
+        tris.append((vid(a), vid(b), vid(c)))
+
+    core = SEA_CORE_CELLS
+    for x in range(-core, core):
+        for y in range(-core, core):
+            tri((x, y), (x + 1, y), (x + 1, y + 1))
+            tri((x, y), (x + 1, y + 1), (x, y + 1))
+
+    for ring in range(1, SEA_RINGS + 1):
+        s = 2 ** ring
+        inner, outer = core * 2 ** (ring - 1), core * 2 ** ring
+        for x in range(-outer, outer, s):
+            for y in range(-outer, outer, s):
+                if x >= -inner and x + s <= inner and y >= -inner and y + s <= inner:
+                    continue  # inside the finer ring
+                corners = [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+                seam = None
+                for e in range(4):
+                    a, b = corners[e], corners[(e + 1) % 4]
+                    if max(abs(a[0]), abs(a[1])) == inner and max(abs(b[0]), abs(b[1])) == inner:
+                        seam = e
+                if seam is None:
+                    tri(corners[0], corners[1], corners[2])
+                    tri(corners[0], corners[2], corners[3])
+                    continue
+                a, b = corners[seam], corners[(seam + 1) % 4]
+                mid = ((a[0] + b[0]) // 2, (a[1] + b[1]) // 2)
+                c, d = corners[(seam + 2) % 4], corners[(seam + 3) % 4]
+                tri(mid, b, c)
+                tri(mid, c, d)
+                tri(mid, d, a)
+    return points, tris
+
+
+def _write_sea_glb(path):
+    """Writes the clipmap as a glTF binary (metres, Y up, like make_island.py) without numpy."""
+    points, tris = _sea_rings()
+    pos, nrm, uv = array.array("f"), array.array("f"), array.array("f")
+    for ix, iy in points:
+        x, y = ix * SEA_UNIT, iy * SEA_UNIT
+        pos.extend((x / 100.0, 0.0, y / 100.0))  # Unreal (x, y, z) cm -> glTF (x, z, y) m
+        nrm.extend((0.0, 1.0, 0.0))
+        uv.extend((x / 1000.0, y / 1000.0))
+    idx = array.array("I")
+    for t in tris:
+        idx.extend(t)
+    half = SEA_HALF / 100.0
+    blobs = [pos.tobytes(), nrm.tobytes(), uv.tobytes(), idx.tobytes()]
+    views, offset = [], 0
+    for i, data in enumerate(blobs):
+        views.append({"buffer": 0, "byteOffset": offset, "byteLength": len(data),
+                      "target": 34963 if i == 3 else 34962})
+        offset += len(data)  # every blob is a multiple of 4 bytes
+    n = len(points)
+    doc = {"asset": {"version": "2.0", "generator": "Lyris lyris_build_harbor.py"},
+           "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"name": "SM_SeaRings", "mesh": 0}],
+           "meshes": [{"name": "SM_SeaRings", "primitives": [{
+               "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2}, "indices": 3, "material": 0}]}],
+           "materials": [{"name": "M_Sea", "pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 0.2}}],
+           "accessors": [
+               {"bufferView": 0, "componentType": 5126, "count": n, "type": "VEC3",
+                "min": [-half, 0.0, -half], "max": [half, 0.0, half]},
+               {"bufferView": 1, "componentType": 5126, "count": n, "type": "VEC3"},
+               {"bufferView": 2, "componentType": 5126, "count": n, "type": "VEC2"},
+               {"bufferView": 3, "componentType": 5125, "count": len(idx), "type": "SCALAR"}],
+           "bufferViews": views, "buffers": [{"byteLength": offset}]}
+    js = json.dumps(doc, separators=(",", ":")).encode()
+    js += b" " * (-len(js) % 4)
+    blob = b"".join(blobs)
+    with open(path, "wb") as f:
+        f.write(struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(blob)))
+        f.write(struct.pack("<II", len(js), 0x4E4F534A) + js)
+        f.write(struct.pack("<II", len(blob), 0x004E4942) + blob)
+    return len(points), len(tris)
+
+
+def _write_png(path, width, height, rgba_rows):
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    raw = b"".join(b"\x00" + bytes(row) for row in rgba_rows)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)))
+        f.write(chunk(b"IDAT", zlib.compress(raw, 9)))
+        f.write(chunk(b"IEND", b""))
+
+
+def _write_sea_ground_png(path):
+    """Island ground height over -3200..3200 cm (the island grid), for shallows and shore foam.
+    Pixel (row, col) covers world (Y, X), like the splat map; outside the grid the edge (deep) repeats."""
+    n, extent = SEA_GROUND_PX, SEA_GROUND_EXTENT
+    span = SEA_GROUND_MAX - SEA_GROUND_MIN
+    rows = []
+    for r in range(n):
+        y = (r + 0.5) / n * 2 * extent - extent
+        row = bytearray()
+        for c in range(n):
+            x = (c + 0.5) / n * 2 * extent - extent
+            g = max(SEA_GROUND_MIN, min(SEA_GROUND_MAX, ground_height(x, y)))
+            v = int(round((g - SEA_GROUND_MIN) / span * 255))
+            row.extend((v, v, v, 255))
+        rows.append(row)
+    _write_png(path, n, n, rows)
+
+
+def _sea_work_dir():
+    path = os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_saved_dir()), "Lyris", "Sea")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _import_sea_ground():
+    png = os.path.join(_sea_work_dir(), "T_SeaGround.png")
+    _write_sea_ground_png(png)
+    _import(png, SEA_TEXTURE_DIR)
+    tex = next(iter(_assets_of(SEA_TEXTURE_DIR, unreal.Texture2D)), None)
+    if tex is None:
+        raise RuntimeError("sea ground map missing after import")
+    tex.set_editor_property("srgb", False)  # heights, not colour
+    tex.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_VECTOR_DISPLACEMENTMAP)
+    tex.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP)
+    tex.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
+    unreal.EditorAssetLibrary.save_loaded_asset(tex)
+    return tex
+
+
+def _import_sea_mesh():
+    glb = os.path.join(_sea_work_dir(), "sea_rings.glb")
+    verts, tris = _write_sea_glb(glb)
+    _log(f"sea mesh: {verts} vertices, {tris} triangles")
+    _import(glb, SEA_MESH_DIR)
+    mesh = next(iter(_assets_of(SEA_MESH_DIR, unreal.StaticMesh)), None)
+    if mesh is None:
+        raise RuntimeError("sea mesh missing after import")
+    # The lattice must land on SEA_UNIT steps in the world, whatever unit scale the importer used
+    # (get_bounds includes the bounds extensions, so clear them first: a forced rebuild re-imports here).
+    mesh.set_editor_property("positive_bounds_extension", unreal.Vector(0.0, 0.0, 0.0))
+    mesh.set_editor_property("negative_bounds_extension", unreal.Vector(0.0, 0.0, 0.0))
+    extent = mesh.get_bounds().box_extent
+    scale = SEA_HALF / max(extent.x, extent.y, 1.0)
+    if abs(scale - 1.0) > 0.01:
+        unreal.log_warning(f"[Lyris] sea mesh imported at {max(extent.x, extent.y):.0f} cm half-size; "
+                           f"scaling the actor by {scale:.4f}")
+    # The waves lift and push the flat mesh, and the material slides it under the camera, so its
+    # bounds must cover far more than the flat grid or it gets culled.
+    mesh.set_editor_property("positive_bounds_extension", unreal.Vector(2000000.0, 2000000.0, 1000.0))
+    mesh.set_editor_property("negative_bounds_extension", unreal.Vector(2000000.0, 2000000.0, 1000.0))
+    try:  # plain triangles: no Nanite, no distance field for a 4 km sheet of water
+        nanite = mesh.get_editor_property("nanite_settings")
+        nanite.set_editor_property("enabled", False)
+        mesh.set_editor_property("nanite_settings", nanite)
+    except Exception as exc:
+        unreal.log_warning(f"[Lyris] could not turn off Nanite on the sea mesh: {exc}")
     try:
-        fres = mel.create_material_expression(mat, unreal.MaterialExpressionFresnel, -700, 200)
-        lerp = mel.create_material_expression(mat, unreal.MaterialExpressionLinearInterpolate, -400, 0)
-        mel.connect_material_expressions(deep, "", lerp, "A")
-        mel.connect_material_expressions(shallow, "", lerp, "B")
-        mel.connect_material_expressions(fres, "", lerp, "Alpha")
-        mel.connect_material_property(lerp, "", unreal.MaterialProperty.MP_BASE_COLOR)
-    except Exception:
-        mel.connect_material_property(deep, "", unreal.MaterialProperty.MP_BASE_COLOR)
-    rough = mel.create_material_expression(mat, unreal.MaterialExpressionConstant, -400, 300)
-    rough.set_editor_property("r", 0.08)
-    mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
-    spec = mel.create_material_expression(mat, unreal.MaterialExpressionConstant, -400, 400)
-    spec.set_editor_property("r", 0.8)
-    mel.connect_material_property(spec, "", unreal.MaterialProperty.MP_SPECULAR)
-    mel.recompile_material(mat)
-    unreal.EditorAssetLibrary.save_loaded_asset(mat)
-    return mat
+        sme = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+        build = sme.get_lod_build_settings(mesh, 0)
+        build.set_editor_property("distance_field_resolution_scale", 0.0)
+        sme.set_lod_build_settings(mesh, 0, build)
+    except Exception as exc:
+        unreal.log_warning(f"[Lyris] could not turn off the sea mesh distance field: {exc}")
+    unreal.EditorAssetLibrary.save_loaded_asset(mesh)
+    return mesh, scale
+
+
+def _make_sea_material():
+    """Gerstner sea from MPC_Sea: displacement, normal, painted colour and foam (see the notes above)."""
+    g = _Graph("Sea")
+    if g.exists:
+        return g.mat
+    mpc = _make_sea_collection()
+    ground_tex = _import_sea_ground()
+    g.mat.set_editor_property("two_sided", True)  # T20 swimmers see the surface from below
+    g.mat.set_editor_property("tangent_space_normal", False)
+
+    def param(name):
+        node = g.node(unreal.MaterialExpressionCollectionParameter)
+        node.set_editor_property("collection", mpc)
+        node.set_editor_property("parameter_name", name)
+        return node
+
+    pos = g.node(unreal.MaterialExpressionWorldPosition)  # the flat lattice, before any offset
+    pos.set_editor_property("world_position_shader_offset",
+                            unreal.WorldPositionIncludedOffsets.WPT_EXCLUDE_ALL_SHADER_OFFSETS)
+    shared = {"P": pos, "Cam": g.node(unreal.MaterialExpressionCameraPositionWS),
+              "EngineTime": g.node(unreal.MaterialExpressionTime)}
+    for name in _SEA_INPUTS:
+        if name not in shared:
+            shared[name] = param(name)
+
+    def custom(desc, code, out_type, extra=None):
+        node = g.node(unreal.MaterialExpressionCustom)
+        node.set_editor_property("description", desc)
+        node.set_editor_property("output_type", out_type)
+        node.set_editor_property("code", code)
+        wired = [(n, shared[n], "") for n in _SEA_INPUTS] + list(extra or [])
+        node.set_editor_property("inputs", [unreal.CustomInput(input_name=n) for n, _, _ in wired])
+        for n, src, pin in wired:
+            g.link(src, node, pin, n)
+        return node
+
+    ct = unreal.CustomMaterialOutputType
+    offset = custom("SeaOffset", _sea_hlsl(SEA_FADE_VERTEX, _SEA_OFFSET_BODY), ct.CMOT_FLOAT3)
+    normal = custom("SeaNormal", _sea_hlsl(SEA_FADE_PIXEL, _SEA_NORMAL_BODY), ct.CMOT_FLOAT3)
+
+    ground_uv = custom("SeaGroundUV", f"float2 snap = floor(Cam.xy / {SEA_SNAP:.1f} + 0.5) * {SEA_SNAP:.1f};\n"
+                       f"return (P.xy + snap + {SEA_GROUND_EXTENT:.1f}) / {2 * SEA_GROUND_EXTENT:.1f};", ct.CMOT_FLOAT2)
+    ground = g.tex(ground_tex, ground_uv, linear=True)
+    colours = [(key, g.colour(PALETTE[name][0]), "") for key, name in
+               (("Trough", "SeaTrough"), ("Mid", "Sea"), ("Crest", "SeaCrest"), ("Shallow", "Shallows"),
+                ("Foam", "SeaFoam"))]
+    shade = custom("SeaShade", _sea_hlsl(SEA_FADE_PIXEL, _SEA_SHADE_BODY), ct.CMOT_FLOAT4,
+                   [("CamVec", g.node(unreal.MaterialExpressionCameraVectorWS), ""), ("Ground", ground, "R")]
+                   + colours)
+
+    colour = g.mask(shade, "RGB")
+    foam = g.mask(shade, "A")
+    g.out(offset, unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
+    g.out(normal, unreal.MaterialProperty.MP_NORMAL)
+    g.out(colour, unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.mul(colour, k=0.05), unreal.MaterialProperty.MP_EMISSIVE_COLOR)  # never muddy in shadow
+    g.out(g.lerp(g.const(PALETTE["Sea"][1]), g.const(PALETTE["SeaFoam"][1]), foam),
+          unreal.MaterialProperty.MP_ROUGHNESS)
+    return g.done()
 
 
 # ----------------------------------------------------------------------------- island materials
@@ -774,10 +1176,25 @@ def build(force=False):
         ppv.set_editor_property("settings", settings)
 
     def sea():
-        # One big plane: 100 units x 4000 = 4 km across; the mist hides the edge.
-        b.shape("Sea", "plane", (0, 0, 0), (4000, 4000, 1), "Sea", folder="Sea", collide=False)
-        # Pale shallows ring around the island, a hair above the sea to avoid flicker.
-        b.shape("Shallows", "cylinder", (0, 0, 0.5), (62, 62, 0.01), "Shallows", folder="Sea", collide=False)
+        # T19: the Gerstner sea from MPC_Sea on a generated clipmap that follows the camera
+        # (4 km across; the mist hides the edge). The pale shallows are painted by the sea material
+        # from the island's ground height, so there is no flat Shallows disc to flicker against the waves.
+        _make_sea_collection()
+        mesh, scale = _import_sea_mesh()
+        actor = b.eas.spawn_actor_from_object(mesh, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0))
+        actor.set_actor_scale3d(unreal.Vector(scale, scale, 1.0))
+        actor.set_actor_label("Sea")
+        actor.set_folder_path("Sea")
+        comp = actor.get_component_by_class(unreal.StaticMeshComponent)
+        comp.set_material(0, b.mat("Sea"))
+        comp.set_collision_profile_name("NoCollision")
+        comp.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
+        # The mesh is re-centred on each camera (shadow views included), so it must not cast shadows.
+        comp.set_editor_property("cast_shadow", False)
+        try:
+            comp.set_editor_property("affect_distance_field_lighting", False)
+        except Exception as exc:
+            unreal.log_warning(f"[Lyris] sea: could not turn off distance field lighting: {exc}")
 
     def island():
         island_mesh, meadow_mesh, foliage_mesh = _import_island()
