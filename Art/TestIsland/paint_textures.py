@@ -309,3 +309,69 @@ def paint_extra(seed=44):
     soft_dabs(img, rng, ["#A7C493", "#55765E"], 120, 9, 0.35, 3.0, 1.1)
     out["needles"] = np.clip(img, 0, 255).astype(np.uint8)
     return out
+
+
+# ----------------------------------------------------------------------------- canopy shell tiles
+
+def _stamp(img, alpha, mask, col, x0, y0):
+    """Paints `col` (H, W, 3 or 3) through `mask` at (x0, y0), wrapping around the tile edges."""
+    size = img.shape[0]
+    h, w = mask.shape
+    ys = (np.arange(h) + y0) % size
+    xs = (np.arange(w) + x0) % size
+    m = mask[..., None]
+    img[np.ix_(ys, xs)] = img[np.ix_(ys, xs)] * (1 - m) + col * m
+    alpha[np.ix_(ys, xs)] = np.maximum(alpha[np.ix_(ys, xs)], mask)
+
+
+def _clump_tile(rng, ramp, count, length, width, pointed, droop, size=SIZE, petals=0):
+    """Seamless tile of overlapping leaves, painted like scales on a stylized canopy.
+
+    Leaves are drawn from the top of the tile down and mostly hang downward, so each row
+    overlaps the one below. Every leaf gets a soft shadow under it, a darker base and a lit
+    tip: from a distance that reads as small lit clumps with dark gaps, not flat noise.
+    The material only uses this tile's light and dark (its colour comes from the palette).
+    """
+    cols = [hexc(c) for c in ramp]  # light -> dark
+    img = np.tile(cols[-1], (size, size, 1)).astype(float)
+    img = img * (0.85 + 0.3 * fbm(rng, 6, 2)[..., None])
+    alpha = np.zeros((size, size))
+    spots = sorted(((rng.random() * size, rng.random() * size) for _ in range(count)), key=lambda p: p[1])
+    pad = int(max(length[1], width[1]) * 1.6) + 4
+    yy, xx = np.mgrid[0:2 * pad, 0:2 * pad].astype(float)
+    for cx, cy in spots:
+        tone = rng.random() ** 0.7
+        base = cols[min(len(cols) - 2, int(tone * (len(cols) - 1)))]
+        ln, wd = rng.uniform(*length), rng.uniform(*width)
+        ang = math.pi / 2 + rng.uniform(-droop, droop)  # +y is down the tile: hang down
+        x0, y0 = int(cx) - pad, int(cy) - pad
+        shapes = []
+        if petals:  # little five-petal flower
+            for k in range(petals):
+                a = ang + 2 * math.pi * k / petals
+                ox, oy = math.cos(a) * ln * 0.55, math.sin(a) * ln * 0.55
+                shapes.append(_leaf_shape(xx, yy, pad + ox, pad + oy, ln * 0.6, wd, a, pointed))
+        else:
+            shapes.append(_leaf_shape(xx, yy, pad, pad, ln, wd, ang, pointed))
+        for mask, t in shapes:
+            shadow = np.roll(mask, (3, 1), axis=(0, 1)) * 0.55
+            _stamp(img, alpha, shadow, cols[-1] * 0.82, x0, y0)
+            light = (0.86 + 0.26 * np.clip(t, 0, 1) + 0.06 * np.clip(-t, 0, 1))[..., None]
+            _stamp(img, alpha, mask, base * light, x0, y0)
+    soft_dabs(img, rng, ramp[:2], 30, 22, 0.12)  # broad sunny patches
+    return np.clip(img, 0, 255).astype(np.uint8)
+
+
+def canopy_tiles(seed=61):
+    """Shell textures for the tree canopies, one per leaf type."""
+    rng = np.random.default_rng(seed)
+    return {
+        "leaf": _clump_tile(rng, ["#DCEA98", "#B8D276", "#94B560", "#729556", "#536E50"], 900,
+                            (13, 20), (6, 9), True, 0.7),
+        "birch_leaves": _clump_tile(rng, ["#EEF4AE", "#D4E58E", "#B4CC72", "#93AE62", "#728E58"], 1300,
+                                    (8, 12), (6, 8), False, 1.2),
+        "needles": _clump_tile(rng, ["#A9C696", "#86A97C", "#688C6A", "#527260", "#3E5A4C"], 3400,
+                               (14, 22), (1.4, 2.2), True, 0.45),
+        "blossom": _clump_tile(rng, ["#FFF2EC", "#FFD9CC", "#F7BBAE", "#E59C9C", "#C27E8A"], 1100,
+                               (8, 11), (5, 6.5), False, 3.1, petals=5),
+    }

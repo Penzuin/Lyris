@@ -18,7 +18,7 @@ import os
 
 import unreal
 
-BUILD_VERSION = 8
+BUILD_VERSION = 9
 MAP_PATH = "/Game/Lyris/Maps/Harbor"
 MAT_DIR = "/Game/Lyris/Materials/Prototype"
 MARKER_PREFIX = "LyrisBuild_v"
@@ -46,11 +46,11 @@ ISLAND_DIR = "Art/TestIsland"
 ISLAND_GLB = "test_island.glb"
 GRASS_GLB = "test_island_grass.glb"
 FOLIAGE_GLB = "test_island_foliage.glb"
-FOLIAGE_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandFoliage_v8"
-GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass_v8"
-TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island_v8"
+FOLIAGE_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandFoliage_v9"
+GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass_v9"
+TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island_v9"
 ISLAND_META = "island_meta.json"
-ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland_v8"
+ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland_v9"
 
 DOCK_X0, DOCK_X1, DOCK_Y, DOCK_TOP = 1150.0, 2850.0, 150.0, 72.0
 BOAT_START = (2450.0, -230.0)
@@ -142,8 +142,9 @@ def _make_sea_material():
 #            rock wherever the ground is steep, textures wrapped from three sides on cliffs
 #            (triplanar) so nothing stretches, and a soft warm-to-cool tone across the island.
 #   rock     triplanar stone with grass only on its flat tops.
-#   leaves   one soft gradient across each canopy (dark underneath, sunlit on top) plus a little
-#            self-light so trees never go muddy in shadow.
+#   leaves   trees are branches carrying separate leaf clumps; each clump is lit on its own top
+#            (UV2.y) with dark creases between, over a crown-wide gradient (dark low, sunlit
+#            high), a painted leaf-clump tile wrapped from three sides, and a little self-light.
 #   grass    darker root to light tip along the blade, tinted by the large-scale ground colour,
 #            swaying in a slow travelling wind; wildflowers are masked cards that sway gently.
 
@@ -375,6 +376,11 @@ def _material_bark(tex, name="IslandBark", tint=None, texture="bark"):
     return g.done()
 
 
+def _clump_shade(g):
+    """Each leaf clump lit on its own top with darker creases between clumps (UV2.y)."""
+    return g.add(g.mul(g.mask(g.uv(2), "G"), k=0.5), k=0.62)
+
+
 def _material_shell(species, texture, luma_mean):
     """Opaque canopy shells: soft top-lit gradient in the species colours, darker toward the
     inside (UV1.x depth), gentle per-shell variation (UV2.x), a fake rim light and self-light."""
@@ -383,10 +389,11 @@ def _material_shell(species, texture, luma_mean):
         return g.mat
     shadow_hex, sun_hex = FOLIAGE_COLOURS[species]
     colour = g.lerp(g.colour(shadow_hex), g.colour(sun_hex), g.foliage_gradient())
-    detail = g.detail(g.tex(texture, g.world_uv(1.0 / 150.0)), luma_mean, 0.35)
+    # Painted leaf clumps wrapped from three sides, so they never stretch down the sides.
+    detail = g.detail(g.triplanar(texture, 1.0 / 160.0), luma_mean, 0.6, pin="")
     depth = g.lerp(g.const(0.6), g.const(1.0), g.mask(g.uv(1), "R"))
     vary = g.add(g.mul(g.mask(g.uv(2), "R"), k=0.12), k=0.94)
-    base = g.mul(g.mul(g.mul(colour, detail), depth), vary)
+    base = g.mul(g.mul(g.mul(g.mul(colour, detail), depth), vary), _clump_shade(g))
     g.out(base, unreal.MaterialProperty.MP_BASE_COLOR)
     rim = g.mul(g.mul(g.fresnel(3.0), g.colour(sun_hex)), k=0.22)
     g.out(g.add(g.mul(base, k=0.18), rim), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
@@ -408,7 +415,7 @@ def _material_cards(species, atlas, luma_mean):
     sample = g.tex(atlas, g.uv(0))
     colour = g.lerp(g.colour(shadow_hex), g.colour(sun_hex), g.foliage_gradient())
     vary = g.add(g.mul(g.mask(g.uv(2), "R"), k=0.12), k=0.94)
-    base = g.mul(g.mul(colour, g.detail(sample, luma_mean, 0.35)), vary)
+    base = g.mul(g.mul(g.mul(colour, g.detail(sample, luma_mean, 0.35)), vary), _clump_shade(g))
     g.out(base, unreal.MaterialProperty.MP_BASE_COLOR)
     g.out(sample, unreal.MaterialProperty.MP_OPACITY_MASK, "A")
     g.out(g.mul(g.colour(sun_hex), k=0.25), unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
@@ -600,7 +607,7 @@ def _import_island():
         if png.endswith(".png"):
             _import(os.path.join(tex_dir, png), TEXTURE_ASSET_DIR)
     tex = {t.get_name(): t for t in _assets_of(TEXTURE_ASSET_DIR, unreal.Texture2D)}
-    needed = ("grass", "sand", "cliff", "path", "bark", "birch_bark", "needles", "leaf", "blossom", "flowers",
+    needed = ("grass", "sand", "cliff", "path", "bark", "birch_bark", "needles", "leaf", "birch_leaves", "blossom", "flowers",
               "leaf_atlas", "plants", "splat")
     missing = [n for n in needed if n not in tex]
     if missing:
@@ -638,7 +645,8 @@ def _import_island():
         "flower": _material_cutout("IslandFlowers", tex["flowers"], 0.6),
         "plant": _material_cutout("IslandPlants", tex["plants"], 0.8),
     }
-    shell_textures = {"Oak": "leaf", "Bush": "leaf", "Birch": "leaf", "Pine": "needles", "Blossom": "blossom"}
+    shell_textures = {"Oak": "leaf", "Bush": "leaf", "Birch": "birch_leaves", "Pine": "needles",
+                      "Blossom": "blossom"}
     for species, tex_name in shell_textures.items():
         materials[f"shell_{species.lower()}"] = _material_shell(species, tex[tex_name], luma[tex_name])
         materials[f"cards_{species.lower()}"] = _material_cards(species, atlas, luma["leaf_atlas"])

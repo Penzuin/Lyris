@@ -64,6 +64,7 @@ Ideas or requests an agent ran into that are not scheduled yet.
 | P4 | Special soils and glasshouses | Harvest | Design (T28) | §7 step 5; soils found on far islands |
 | P5 | Scarecrow constructs that harvest, replant and care in a radius | Harvest | Design (T28) | §7 step 6; objects, not creatures |
 | P6 | Crop hover tooltip: stage, time to ripe, active bonuses | UI | Design (T28) | Shows that tending helps without nagging |
+| ? | Trees and bushes: grown branch structure (space colonization) with separate leaf clumps on the branch tips, so crowns have a broken silhouette with gaps and every clump is lit on its own top; pines as layered drooping sprays; bushes as lumpy clusters; painted leaf-clump shell tiles wrapped from three sides; `BUILD_VERSION` 9 | Environment | User (trees read as blobs, too oval) | Done on `lane/environment-trees-clumps`, PR open. The same tree builder should feed T35/T36 |
 
 ## Done
 
