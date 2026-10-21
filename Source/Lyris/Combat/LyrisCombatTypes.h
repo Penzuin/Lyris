@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "LyrisCombatTypes.generated.h"
 
+class AActor;
+
 /** The one attunement a character carries (changed only at a lit lamp, never mid-fight). */
 UENUM(BlueprintType)
 enum class ELyrisAttunement : uint8

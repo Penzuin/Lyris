@@ -38,8 +38,8 @@ ALyrisCombatFx::ALyrisCombatFx()
 	Light->SetAttenuationRadius(900.f);
 }
 
-ALyrisCombatFx* ALyrisCombatFx::Burst(UWorld* World, const FVector& Location, const FLinearColor& Colour,
-	float StartRadius, float EndRadius, float Lifetime, float LightIntensity, bool bGroundRing)
+ALyrisCombatFx* ALyrisCombatFx::Burst(UWorld* World, const FVector& Location, const FLinearColor& InColour,
+	float InStartRadius, float InEndRadius, float InLifetime, float LightIntensity, bool bGroundRing)
 {
 	if (!World)
 	{
@@ -52,10 +52,10 @@ ALyrisCombatFx* ALyrisCombatFx::Burst(UWorld* World, const FVector& Location, co
 	{
 		return nullptr;
 	}
-	Fx->Colour = Colour;
-	Fx->StartRadius = StartRadius;
-	Fx->EndRadius = EndRadius;
-	Fx->Lifetime = FMath::Max(0.05f, Lifetime);
+	Fx->Colour = InColour;
+	Fx->StartRadius = InStartRadius;
+	Fx->EndRadius = InEndRadius;
+	Fx->Lifetime = FMath::Max(0.05f, InLifetime);
 	Fx->PeakLight = LightIntensity;
 	Fx->bRing = bGroundRing && Fx->RingMesh;
 	if (Fx->bRing)
@@ -66,11 +66,11 @@ ALyrisCombatFx* ALyrisCombatFx::Burst(UWorld* World, const FVector& Location, co
 	Fx->Material = Fx->Shape->CreateAndSetMaterialInstanceDynamic(0);
 	if (Fx->Material)
 	{
-		Fx->Material->SetVectorParameterValue(TEXT("Color"), Colour);
+		Fx->Material->SetVectorParameterValue(TEXT("Color"), InColour);
 	}
-	Fx->Light->SetLightColor(Colour);
+	Fx->Light->SetLightColor(InColour);
 	Fx->Light->SetIntensity(LightIntensity);
-	Fx->SetActorScale3D(Fx->ScaleFor(StartRadius));
+	Fx->SetActorScale3D(Fx->ScaleFor(InStartRadius));
 	return Fx;
 }
 

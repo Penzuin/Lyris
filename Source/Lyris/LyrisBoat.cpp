@@ -128,7 +128,7 @@ float ALyrisBoat::GetSailEfficiency(float RelativeWindDeg, FString& OutPointOfSa
 	if (A >= 120.f)
 	{
 		OutPointOfSail = TEXT("Close-hauled");
-		return static_cast<float>(FMath::GetMappedRangeValueClamped(FVector2D(150.f, 120.f), FVector2D(0.05f, 0.75f), A));
+		return static_cast<float>(FMath::GetMappedRangeValueClamped(FVector2f(150.f, 120.f), FVector2f(0.05f, 0.75f), A));
 	}
 	if (A >= 60.f)
 	{
@@ -136,7 +136,7 @@ float ALyrisBoat::GetSailEfficiency(float RelativeWindDeg, FString& OutPointOfSa
 		return 1.f - FMath::Abs(A - 90.f) / 30.f * 0.25f;
 	}
 	OutPointOfSail = TEXT("Running downwind");
-	return static_cast<float>(FMath::GetMappedRangeValueClamped(FVector2D(0.f, 60.f), FVector2D(0.65f, 0.75f), A));
+	return static_cast<float>(FMath::GetMappedRangeValueClamped(FVector2f(0.f, 60.f), FVector2f(0.65f, 0.75f), A));
 }
 
 void ALyrisBoat::Hint(int32 Slot, const FString& Text, const FColor& Color) const
@@ -276,7 +276,7 @@ void ALyrisBoat::UpdateFloating(float DeltaSeconds)
 	SetActorLocation(FVector(Loc.X, Loc.Y, WaterHeight + 25.f + Bob));
 
 	const float Heel = -Rudder * 4.f + Sail * 5.f * FMath::Sin(FMath::DegreesToRadians(
-		FMath::FindDeltaAngleDegrees(GetActorRotation().Yaw, GetWindYaw())));
+		FMath::FindDeltaAngleDegrees(static_cast<float>(GetActorRotation().Yaw), GetWindYaw())));
 	const float Roll = 2.5f * FMath::Sin(Clock * 0.9f) + Heel;
 	const float Pitch = 1.5f * FMath::Sin(Clock * 1.1f);
 	Visual->SetRelativeRotation(FRotator(Pitch, 0.f, Roll));

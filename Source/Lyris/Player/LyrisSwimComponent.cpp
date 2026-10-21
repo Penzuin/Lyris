@@ -310,7 +310,7 @@ void ULyrisSwimComponent::UpdateFloating(float DeltaTime, float WaterZ)
 	float Z = static_cast<float>(Character->GetActorLocation().Z);
 	const float StartZ = Z;
 	float Remaining = FMath::Min(DeltaTime, 0.1f);
-	while (Remaining > KINDA_SMALL_NUMBER)
+	while (Remaining > UE_KINDA_SMALL_NUMBER)
 	{
 		const float Step = FMath::Min(Remaining, LyrisSwim::MaxSubstep);
 		const float Accel = Omega * Omega * (TargetZ - Z) - 2.f * BuoyancyDamping * Omega * VerticalSpeed;
@@ -520,7 +520,7 @@ void ULyrisSwimComponent::UpdateReturn(float DeltaTime)
 			StopSwimming(MOVE_Walking);
 			Character->SetActorLocationAndRotation(ReturnPoint, FRotator(0.f, ReturnYaw, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
 			Movement->StopMovementImmediately();
-			if (PC && PC->GetPawn() == Character)
+			if (PC && PC->GetPawn() == Character.Get())
 			{
 				PC->SetControlRotation(FRotator(-10.f, ReturnYaw, 0.f));
 			}

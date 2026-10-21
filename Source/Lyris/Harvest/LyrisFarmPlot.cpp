@@ -23,7 +23,7 @@ namespace LyrisFarmPlot
 {
 	static FText FormatDuration(double Seconds)
 	{
-		const int32 TotalMinutes = FMath::Max(1, FMath::CeilToInt(Seconds / 60.0));
+		const int32 TotalMinutes = FMath::Max(1, FMath::CeilToInt32(Seconds / 60.0));
 		const int32 Hours = TotalMinutes / 60;
 		const int32 Minutes = TotalMinutes % 60;
 		if (Hours >= 48)
@@ -221,8 +221,8 @@ FVector ALyrisFarmPlot::GetCellWorldLocation(int32 CellIndex) const
 int32 ALyrisFarmPlot::GetCellAtLocation(const FVector& WorldLocation) const
 {
 	const FVector Local = GetActorTransform().InverseTransformPosition(WorldLocation);
-	const int32 X = FMath::FloorToInt((Local.X + GridSize.X * CellSize * 0.5f) / CellSize);
-	const int32 Y = FMath::FloorToInt((Local.Y + GridSize.Y * CellSize * 0.5f) / CellSize);
+	const int32 X = FMath::FloorToInt32((Local.X + GridSize.X * CellSize * 0.5f) / CellSize);
+	const int32 Y = FMath::FloorToInt32((Local.Y + GridSize.Y * CellSize * 0.5f) / CellSize);
 	return CoordToIndex(X, Y);
 }
 

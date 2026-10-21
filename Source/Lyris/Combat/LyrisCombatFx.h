@@ -22,10 +22,10 @@ public:
 
 	virtual void Tick(float DeltaSeconds) override;
 
-	/** Spawns a burst: grows from StartRadius to EndRadius over Lifetime while fading.
+	/** Spawns a burst: grows from InStartRadius to InEndRadius over InLifetime while fading.
 	 *  bGroundRing: a flat shockwave disc at Location (for area attacks), else a small spark. */
-	static ALyrisCombatFx* Burst(UWorld* World, const FVector& Location, const FLinearColor& Colour,
-		float StartRadius, float EndRadius, float Lifetime, float LightIntensity = 6000.f, bool bGroundRing = false);
+	static ALyrisCombatFx* Burst(UWorld* World, const FVector& Location, const FLinearColor& InColour,
+		float InStartRadius, float InEndRadius, float InLifetime, float LightIntensity = 6000.f, bool bGroundRing = false);
 
 private:
 	UPROPERTY(VisibleAnywhere, Category = "Fx")

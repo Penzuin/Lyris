@@ -6,6 +6,8 @@
 #include "UObject/Interface.h"
 #include "LyrisInteractable.generated.h"
 
+class AActor;
+
 UINTERFACE(MinimalAPI, BlueprintType)
 class ULyrisInteractable : public UInterface
 {

@@ -279,16 +279,11 @@ void ULyrisPlaytestSubsystem::SpawnSamples(ACharacter* Character)
 	}
 
 	// One of each resource node in a row to the right.
-	bool bHasNodes = false;
-	for (TActorIterator<ALyrisResourceNode> It(World); It; ++It)
-	{
-		bHasNodes = true;
-		break;
-	}
+	const bool bHasNodes = static_cast<bool>(TActorIterator<ALyrisResourceNode>(World));
 	if (!bHasNodes)
 	{
 		const TCHAR* NodeTypes[] = { TEXT("rock"), TEXT("copper_vein"), TEXT("tree"), TEXT("sea_herb"), TEXT("star_crystal") };
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(NodeTypes); ++Index)
+		for (int32 Index = 0; Index < static_cast<int32>(UE_ARRAY_COUNT(NodeTypes)); ++Index)
 		{
 			const FVector Offset = Right * 450.f + Forward * (Index * 280.f - 280.f);
 			if (!Place(Offset, 250.f, Ground))
@@ -314,12 +309,7 @@ void ULyrisPlaytestSubsystem::SpawnSamples(ACharacter* Character)
 	}
 
 	// Combat training ground well away from the farm (crawlers wake within about 18 m).
-	bool bHasTraining = false;
-	for (TActorIterator<ALyrisTrainingGround> It(World); It; ++It)
-	{
-		bHasTraining = true;
-		break;
-	}
+	const bool bHasTraining = static_cast<bool>(TActorIterator<ALyrisTrainingGround>(World));
 	if (!bHasTraining)
 	{
 		bool bPlaced = false;
@@ -361,7 +351,7 @@ void ULyrisPlaytestSubsystem::HandleInput(APlayerController* PC, ACharacter* Cha
 	ULyrisInventoryComponent* Inv = Inventory.Get();
 	if (Inv)
 	{
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(LyrisPlaytest::SlotKeys); ++Index)
+		for (int32 Index = 0; Index < static_cast<int32>(UE_ARRAY_COUNT(LyrisPlaytest::SlotKeys)); ++Index)
 		{
 			if (PC->WasInputKeyJustPressed(LyrisPlaytest::SlotKeys[Index]))
 			{

@@ -4,6 +4,7 @@
 
 #include "LyrisInteractable.h"
 #include "CollisionQueryParams.h"
+#include "CollisionShape.h"
 #include "Engine/EngineTypes.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
@@ -214,7 +215,7 @@ AActor* ULyrisInteractionComponent::FindBestTarget() const
 		}
 
 		// Prefer what's centred in view, then what's close. Both terms are 0..1.
-		const float Closeness = 1.f - FMath::Clamp(ToTarget.Size() / FMath::Max(Range, 1.f), 0.f, 1.f);
+		const float Closeness = 1.f - FMath::Clamp(static_cast<float>(ToTarget.Size()) / FMath::Max(Range, 1.f), 0.f, 1.f);
 		const float Score = Dot * 2.f + Closeness;
 		if (Score > BestScore)
 		{
