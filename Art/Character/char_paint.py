@@ -181,47 +181,82 @@ def freckle_field(P, density=1.0):
     return np.clip(dots * np.clip(region * 1.3, 0, 1), 0, 1)
 
 
+# Painted light for the skin (T46): a soft key from above-front-left, warm where it hits, a cool
+# lavender where it turns away, and a warm rim at the edge. Baked into the base colour at low
+# strength, like the island's painted tiles, so the character reads painterly even under flat
+# light; the material still lights it normally.
+KEY = np.array([0.45, -0.75, 0.55])
+KEY = KEY / np.linalg.norm(KEY)
+WARM_LIGHT = hexrgb("FFF1E2")
+COOL_SHADE = hexrgb("C7B7D6")
+RIM = hexrgb("FFD9C2")
+
+
+def painted_light(P, N, strength=1.0):
+    """Multiplier (k, 3) of the baked painterly light: ~1 overall, warm top-front, cool under."""
+    lam = N @ KEY
+    band = smoothstep(-0.35, 0.25, lam)                 # a soft but readable terminator
+    light = WARM_LIGHT[None, :] * band[:, None] + COOL_SHADE[None, :] * (1 - band[:, None])
+    rim = smoothstep(0.55, 0.95, 1 - np.abs(N[:, 1])) * smoothstep(0.0, 0.4, -lam + 0.2)
+    light = light * (1 - 0.25 * rim[:, None]) + RIM[None, :] * 0.25 * rim[:, None]
+    n = NOISE.fbm(P, 5.0)
+    light = light * (1 + 0.025 * n)[:, None]
+    return 1 + (light / light.mean(0, keepdims=True) - 1) * 0.32 * strength
+
+
 def paint_skin(pm, part):
     """Returns (base colour, preview colour, masks RGBA) for 'head', 'body' or 'ears'.
-    Masks: R rosiness (cheeks, nose, ears, knuckles, knees, elbows), G freckles (SunKissed set),
-    B lips, A blush (Blush.Apples)."""
+    Base colour: the neutral warm SKIN_BASE with painted light and painted features (lid line,
+    nostrils, lip colour, the mouth line); multiply by SkinTone. Masks: R rosiness (cheeks,
+    nose, ears, knuckles, knees, elbows), G freckles (SunKissed set), B lips, A blush
+    (Blush.Apples)."""
     P, N = pm.P, pm.N
-    n = NOISE.fbm(P, 6.0)
-    up = N[:, 2]
-    # value: a touch lighter on top planes and cheek tops, a touch deeper and cooler underneath
-    val = 1.0 + 0.035 * up + 0.02 * n
-    base = SKIN_BASE[None, :] * val[:, None]
-    under = np.clip(-up, 0, 1)
-    base = base * (1 - 0.06 * under[:, None]) + hexrgb("C9B4C8")[None, :] * 0.06 * under[:, None]
+    if part == "head":
+        P = P.copy()
+    base = SKIN_BASE[None, :] * painted_light(P, N, 1.0)
     ros = np.zeros(len(P))
     lips = np.zeros(len(P))
     blush = np.zeros(len(P))
     frk = np.zeros(len(P))
     if part == "head":
         for s in (1, -1):
-            ros += blob(P, (3.7 * s, -6.6, 153.6), (2.4, 2.4, 1.8))
-            blush += blob(P, (3.6 * s, -6.8, 153.4), (1.9, 2.0, 1.4))
-            # soft warm shadow round the eye socket, a little pink at the inner corner
-            e = cs.EYE["l" if s > 0 else "r"].astype(F)
-            ring = blob(P, e + (0.0, -0.6, 0.4), (2.9, 2.0, 2.3)) * (1 - blob(P, e, (1.7, 1.4, 1.2)))
-            base = base * (1 - 0.07 * ring[:, None]) + hexrgb("D7A6A0")[None, :] * 0.07 * ring[:, None]
-        ros += 0.8 * blob(P, cs.NOSE_TIP.astype(F) + (0, 0.5, 0), (1.3, 1.2, 1.1))
-        ros += 0.5 * blob(P, cs.CHIN.astype(F) + (0, 0, 0.2), (1.8, 1.6, 1.2))
+            side = "l" if s > 0 else "r"
+            ros += 0.9 * blob(P, (3.6 * s, -6.8, 153.6), (2.5, 2.4, 1.7))
+            blush += blob(P, (3.5 * s, -7.0, 153.5), (2.1, 2.1, 1.4))
+            e = cs.EYE[side].astype(F)
+            R = cs.eye_rot(side).astype(F)
+            q = (P - e) @ R
+            u, v = q[:, 0], q[:, 2]
+            t = np.clip(u / cs.EYE_W, -1, 1)
+            up = cs.EYE_HU * np.clip(1 - t * t, 0, 1) ** 0.58 * (1 - 0.08 * t) + 0.18 * t
+            lo = -cs.EYE_HL * np.clip(1 - t * t, 0, 1) ** 0.8 + 0.18 * t
+            along = 1 - smoothstep(cs.EYE_W * 0.95, cs.EYE_W * 1.35, np.abs(u))
+            front = (q[:, 1] < 1.0)
+            # a warm, soft shadow in the socket and a dark painted lid line on the upper lid
+            socket = np.exp(-((v - up - 0.35) / 0.55) ** 2) * along * front
+            base = base * (1 - 0.12 * socket[:, None]) + hexrgb("C98F86")[None, :] * 0.12 * socket[:, None]
+            lidline = np.exp(-((v - up - 0.05) / 0.13) ** 2) * along * front * smoothstep(-1.0, -0.2, t + 0.4)
+            base = base * (1 - 0.55 * lidline[:, None]) + hexrgb("5A3A3A")[None, :] * 0.55 * lidline[:, None]
+            lowline = np.exp(-((v - lo + 0.06) / 0.1) ** 2) * along * front * smoothstep(-0.2, 0.6, t)
+            base = base * (1 - 0.22 * lowline[:, None]) + hexrgb("B07F72")[None, :] * 0.22 * lowline[:, None]
+            ros += 0.35 * blob(P, e + R @ np.array([-cs.EYE_W, -0.5, -0.1]), (0.6, 1.0, 0.6))
+        ros += 0.9 * blob(P, cs.NOSE_TIP.astype(F) + (0, 0.45, 0), (1.15, 1.1, 1.0))
+        ros += 0.4 * blob(P, cs.CHIN.astype(F) + (0, 0, 0.2), (1.7, 1.6, 1.2))
         mouth = cs.MOUTH.astype(F)
-        lu = blob(P, mouth + (0, 0.0, 0.3), (1.45, 1.2, 0.42))
-        ll = blob(P, mouth + (0, 0.1, -0.38), (1.25, 1.2, 0.48))
-        lips = np.clip((lu + ll) * 2.2, 0, 1) * (N[:, 1] < 0.2)
+        lu = blob(P, mouth + (0, 0.0, 0.28), (1.2, 1.3, 0.38))
+        ll = blob(P, mouth + (0, 0.1, -0.33), (1.05, 1.3, 0.44))
+        lips = np.clip((lu + ll) * 2.4, 0, 1) * (N[:, 1] < 0.3)
         lips = smoothstep(0.15, 0.6, lips)
-        base = base * (1 - 0.28 * lips[:, None]) + ROSE[None, :] * 0.28 * lips[:, None]
-        # parting line between the lips, painted not modelled
-        part_line = np.exp(-((P[:, 2] - (mouth[2] - 0.02 + 0.06 * (P[:, 0] / 1.3) ** 2)) / 0.07) ** 2) \
-            * (1 - smoothstep(1.0, 1.45, np.abs(P[:, 0]))) * (P[:, 1] < -7.0)
-        base = base * (1 - 0.35 * part_line[:, None]) + hexrgb("9A5A55")[None, :] * 0.35 * part_line[:, None]
+        base = base * (1 - 0.30 * lips[:, None]) + hexrgb("E09486")[None, :] * 0.30 * lips[:, None]
+        # the mouth line, a fine warm stroke that fades at the corners
+        mline = mouth[2] - 0.02 - 0.06 * np.clip(P[:, 0] / cs.MOUTH_HALF, -1, 1) ** 2
+        part_line = np.exp(-((P[:, 2] - mline) / 0.07) ** 2) * (1 - smoothstep(0.75, 1.15, np.abs(P[:, 0]) / cs.MOUTH_HALF)) \
+            * (P[:, 1] < mouth[1] + 0.6)
+        base = base * (1 - 0.55 * part_line[:, None]) + hexrgb("8E4F4C")[None, :] * 0.55 * part_line[:, None]
         frk = freckle_field(P)
-        # nostrils: a soft warm shadow
         for s in (1, -1):
-            nos = blob(P, (0.55 * s, -9.2, 154.0), (0.45, 0.6, 0.32))
-            base = base * (1 - 0.3 * nos[:, None]) + hexrgb("B07F72")[None, :] * 0.3 * nos[:, None]
+            nos = blob(P, (0.48 * s, -8.75, 154.3), (0.38, 0.55, 0.28))
+            base = base * (1 - 0.35 * nos[:, None]) + hexrgb("B07F72")[None, :] * 0.35 * nos[:, None]
     elif part == "body":
         for s in (1, -1):
             hand = cs.HAND["l" if s > 0 else "r"]
@@ -229,37 +264,54 @@ def paint_skin(pm, part):
             ros += 0.8 * blob(P, wrist + d * 8.0, (3.0, 3.0, 3.0))          # knuckles
             ros += 0.6 * blob(P, cs.J[f"calf_{'l' if s > 0 else 'r'}"] + (0, -3.5, 0), (3.5, 3, 3.5))  # knees
             ros += 0.5 * blob(P, cs.J[f"lowerarm_{'l' if s > 0 else 'r'}"] + (0, 2.5, 0), (3, 3, 3))  # elbows
+            ros += 0.5 * blob(P, wrist + d * 4.0, (3.2, 3.2, 3.2))          # palms
     elif part == "ears":
         ros += 0.9 * np.ones(len(P))
     ros = np.clip(ros, 0, 1)
-    preview = base * (1 - 0.25 * ros[:, None]) + ROSE[None, :] * 0.25 * ros[:, None]
+    preview = base * (1 - 0.3 * ros[:, None]) + ROSE[None, :] * 0.3 * ros[:, None]
     masks = np.stack([ros, frk, lips, np.clip(blush, 0, 1)], axis=1)
     return pm.image(base), pm.image(preview), pm.image(masks)
+
+
+def paint_mouth(size=128):
+    """Mouth interior atlas: left third the soft dark-rose mouth, middle the teeth (warm white),
+    right the tongue."""
+    img = np.zeros((size, size, 3))
+    third = size // 3
+    img[:, :third] = hexrgb("7A3E45")
+    img[:, third:2 * third] = hexrgb("F4ECE0")
+    img[:, 2 * third:] = hexrgb("C9666A")
+    return img
 
 
 # ----------------------------------------------------------------------------- hair
 
 def paint_hair(pm, top_z, bottom_z, flow="vertical"):
-    """Greyscale strand detail (R), root-to-tip gradient (G), shine band (B), highlight streaks (A)."""
+    """Greyscale painted detail (R), root-to-tip gradient (G), shine ribbon (B), highlight
+    streaks (A). R carries broad painted light (warm top, cool under, deeper between locks)
+    and a few long soft strand strokes; no fine noise."""
     P, N = pm.P, pm.N
     c = np.array([0, 1.3, 160.0])
     q = P - c
     ang = np.arctan2(q[:, 0], q[:, 1])
     if flow == "braid":
-        coord = P[:, 0] * 2.1 + P[:, 2] * 0.9
+        coord = P[:, 0] * 1.4 + P[:, 2] * 0.6
     else:
-        coord = ang * 14.0 + 0.6 * NOISE(P, 2.0)
-    strands = 0.5 + 0.5 * np.sin(coord) * (0.6 + 0.4 * np.sin(coord * 2.7 + 1.3))
-    detail = 0.78 + 0.22 * strands + 0.06 * NOISE.fbm(P, 1.5)
-    # soft occlusion deeper in the hair: darker towards the head
-    detail *= 0.86 + 0.14 * np.clip(N[:, 2] * 0.5 + 0.6, 0, 1)
+        coord = ang * 9.0 + 0.4 * NOISE(P, 3.0)
+    strands = 0.5 + 0.5 * np.sin(coord)
+    lam = N @ KEY
+    band = smoothstep(-0.4, 0.35, lam)
+    detail = 0.70 + 0.26 * band + 0.05 * strands
+    # depth between locks: surfaces facing the head centre are deeper
+    toward = -(N * (q / np.maximum(np.linalg.norm(q, axis=1, keepdims=True), 1e-6))).sum(1)
+    detail *= 1 - 0.12 * smoothstep(0.0, 0.6, toward)
     grad = np.clip((top_z - P[:, 2]) / max(top_z - bottom_z, 1.0), 0, 1)
-    # storybook shine ribbon: a band round the crown, broken by the strands
-    band_z = top_z - 5.5
-    shine = np.exp(-((P[:, 2] - band_z - 0.8 * np.sin(ang * 3)) / 0.9) ** 2) * np.clip(N[:, 2] + 0.4, 0, 1)
-    shine *= 0.6 + 0.4 * np.sin(coord * 0.5 + 0.5) ** 2
+    # the storybook shine ribbon: a broken band round the crown on the lit side
+    band_z = top_z - 5.0
+    shine = np.exp(-((P[:, 2] - band_z - 0.7 * np.sin(ang * 3)) / 0.55) ** 2) * smoothstep(-0.1, 0.5, lam)
+    shine *= 0.35 + 0.65 * smoothstep(0.3, 0.7, 0.5 + 0.5 * np.sin(coord * 1.6 + 0.5))
     streak = smoothstep(0.55, 0.85, 0.5 + 0.5 * np.sin(ang * 5.0 + 0.4 * NOISE(P, 3.0)))
-    img = np.stack([detail, grad, np.clip(shine, 0, 1), streak], axis=1)
+    img = np.stack([np.clip(detail, 0, 1), grad, np.clip(shine, 0, 1), streak], axis=1)
     return pm.image(img)
 
 
@@ -267,9 +319,10 @@ def hair_preview(mask, root, tip, gs=0.7, soft=0.5):
     det, grad, shine, _ = [mask[..., i] for i in range(4)]
     t = smoothstep(gs - soft * 0.5, gs + soft * 0.5, grad)
     col = root[None, None, :] * (1 - t[..., None]) + tip[None, None, :] * t[..., None]
-    col = col * det[..., None]
-    col = col + (np.array([1.0, 0.96, 0.88]) - col) * (0.35 * shine[..., None])
-    return col
+    shade = COOL_SHADE * 0.45 + 0.55
+    col = col * det[..., None] * (shade[None, None, :] * (1 - det[..., None]) + det[..., None])
+    col = col + (np.array([1.0, 0.95, 0.86]) - col) * (0.3 * shine[..., None])
+    return np.clip(col, 0, 1)
 
 
 # ----------------------------------------------------------------------------- cloth
@@ -373,19 +426,21 @@ def paint_brow(w=512, h=128, thick=1.0):
 
 
 def paint_lash(w=512, h=128):
-    """Upper lash card: a solid lash line and a few bold storybook lashes, longer at the outer
-    corner (u: inner->outer, v: root->tip)."""
+    """Upper lash card: a bold, solid lash line at the root (the strong upper line of a painted
+    eye) and a few chunky storybook lashes that flick out at the outer corner
+    (u: inner->outer, v: root->tip)."""
     y, x = np.mgrid[0:h, 0:w]
     u = (x + 0.5) / w
     v = 1 - (y + 0.5) / h
-    line = (1 - smoothstep(0.16, 0.24, v)) * smoothstep(0.0, 0.05, u) * (1 - smoothstep(0.97, 1.0, u))
+    thick = 0.22 + 0.16 * smoothstep(0.3, 1.0, u)
+    line = (1 - smoothstep(thick, thick + 0.06, v)) * smoothstep(0.0, 0.06, u) * (1 - smoothstep(0.985, 1.0, u))
     a = line.copy()
-    centres = [0.40, 0.55, 0.68, 0.79, 0.88, 0.95]
+    centres = [0.56, 0.70, 0.81, 0.90, 0.965]
     for i, c in enumerate(centres):
-        L = 0.45 + 0.5 * i / (len(centres) - 1)
+        L = 0.5 + 0.45 * i / (len(centres) - 1)
         tt = np.clip(v / L, 0, 1)
-        cx = c + 0.05 * tt ** 1.5
-        width = 0.022 * (1 - tt) ** 0.8 + 0.002
+        cx = c + 0.06 * tt ** 1.5
+        width = 0.03 * (1 - tt) ** 0.9 + 0.003
         stroke = np.exp(-((u - cx) / width) ** 2) * (v < L)
         a = np.maximum(a, stroke)
     rgb = np.ones((h, w, 3)) * 0.9
@@ -393,7 +448,7 @@ def paint_lash(w=512, h=128):
 
 
 
-def paint_eye_cm(size, eye_r, iris_hex="3F9A93", iris_cm=1.22, pupil_cm=0.5, iris_up=0.18):
+def paint_eye_cm(size, eye_r, iris_hex="3F9A93", iris_cm=1.62, pupil_cm=0.6, iris_up=0.14):
     """Eye texture in the eyeball's front projection, sized in centimetres: u = x / eye_r.x,
     v = z / eye_r.z (both -1..1). The iris is a tall painted oval, set a little high so the
     upper lid overlaps it (the storybook look). Returns (preview colour, masks RGBA:
@@ -413,10 +468,11 @@ def paint_eye_cm(size, eye_r, iris_hex="3F9A93", iris_cm=1.22, pupil_cm=0.5, iri
     det = 0.66 + 0.14 * rays * smoothstep(0.45, 0.9, r)
     det *= 1 - 0.55 * smoothstep(0.80, 1.0, r)                       # soft limbal ring
     det *= 1 - 0.45 * np.clip(rv, 0, 1) ** 1.2                        # the upper lid's shadow
-    det += 0.55 * np.exp(-((rv + 0.62) / 0.28) ** 2) * (1 - smoothstep(0.55, 0.95, r))   # light pools low
-    c1 = np.exp(-(((u - 0.36) / 0.26) ** 2 + ((v - iris_up - 0.42) / 0.30) ** 2))
-    c2 = np.exp(-(((u + 0.32) / 0.11) ** 2 + ((v - iris_up + 0.52) / 0.11) ** 2))
-    catch = np.clip(smoothstep(0.45, 0.62, c1) + 0.8 * smoothstep(0.45, 0.62, c2), 0, 1)
+    det += 0.75 * np.exp(-((rv + 0.6) / 0.3) ** 2) * (1 - smoothstep(0.5, 0.95, r))   # light pools low
+    det *= 1 - 0.25 * smoothstep(0.85, 1.0, r)
+    c1 = np.exp(-(((u - 0.48) / 0.36) ** 2 + ((v - iris_up - 0.55) / 0.40) ** 2))
+    c2 = np.exp(-(((u + 0.45) / 0.16) ** 2 + ((v - iris_up + 0.68) / 0.16) ** 2))
+    catch = np.clip(smoothstep(0.42, 0.58, c1) + 0.85 * smoothstep(0.42, 0.58, c2), 0, 1)
     shade = smoothstep(0.1, 1.2, v / float(eye_r[2]) + 0.35)
     sclera = SAIL[None, None, :] * (1 - 0.16 * shade[..., None]) + hexrgb("C8C4D8")[None, None, :] * 0.16 * shade[..., None]
     ic = hexrgb(iris_hex)

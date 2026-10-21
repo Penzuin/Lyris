@@ -82,7 +82,7 @@ def build_joints():
             w = -w
         frames[side] = (wrist, d, n, w)
 
-        spread = {"index": 2.25, "middle": 0.75, "ring": -0.75, "pinky": -2.2}
+        spread = {"index": 2.55, "middle": 0.85, "ring": -0.85, "pinky": -2.5}
         lengths = {"index": (3.5, 2.3, 1.9), "middle": (3.8, 2.5, 2.0),
                    "ring": (3.5, 2.3, 1.9), "pinky": (2.8, 1.9, 1.7)}
         knuckle_d = {"index": 7.9, "middle": 8.1, "ring": 7.8, "pinky": 7.2}
