@@ -14,6 +14,9 @@ Rebuilds only replace actors this script made (tag LyrisWorldBuild); the landsca
     import lyris_build_world as w; w.build(force=True)  # rebuild even if up to date
     import lyris_build_world as w; w.import_steps()     # print the landscape import steps again
 
+Landmarks (T36): lyris_build_landmarks.py places the canon landmarks and the new island lamps from
+Art/World/landmarks.json as one of the build steps; lyris_build_landmarks.rebuild() redoes only those.
+
 Coordinates: design/world_map.md (MC X -> UE X, MC Z -> UE Y, UE Z = (MC Y - 63) * 100).
 Not wired into init_unreal.py yet: T37 (Lead) makes Lyris the default map.
 """
@@ -23,10 +26,11 @@ import os
 
 import unreal
 
-BUILD_VERSION = 1
+BUILD_VERSION = 2  # 2: landmarks and new island lamps (T36, lyris_build_landmarks.py)
+TERRAIN_MAT_VERSION = 1  # versions the terrain material and its textures separately from the actors
 MAP_PATH = "/Game/Lyris/Maps/Lyris"
 MAT_DIR = "/Game/Lyris/Materials/World"
-TEX_DIR = f"/Game/Lyris/Textures/World_v{BUILD_VERSION}"
+TEX_DIR = f"/Game/Lyris/Textures/World_v{TERRAIN_MAT_VERSION}"
 LAYER_INFO_DIR = f"{MAT_DIR}/LayerInfo"
 MARKER_PREFIX = "LyrisWorld_v"
 TAG = "LyrisWorldBuild"
@@ -124,7 +128,7 @@ class _Graph:
     """Small helper for building material graphs from Python (same pattern as the Harbor script)."""
 
     def __init__(self, name):
-        self.name = f"M_{name}_v{BUILD_VERSION}"  # versioned: a rebuild never edits a material in use
+        self.name = f"M_{name}_v{TERRAIN_MAT_VERSION}"  # versioned: a rebuild never edits a material in use
         self.path = f"{MAT_DIR}/{self.name}"
         self.exists = unreal.EditorAssetLibrary.does_asset_exist(self.path)
         if self.exists:
@@ -469,7 +473,7 @@ def import_steps(manifest=None):
         " 1. Selection Mode dropdown > Landscape. Manage tab > New > Import from File.",
         f" 2. Heightmap File: {os.path.join(tiles, m['first_heightmap'])}  (answer Yes to 'tiled image').",
         "    Leave Flip Y Axis OFF.",
-        f" 3. Material: {MAT_DIR}/M_LyrisWorldTerrain_v{BUILD_VERSION}",
+        f" 3. Material: {MAT_DIR}/M_LyrisWorldTerrain_v{TERRAIN_MAT_VERSION}",
         " 4. Layers (one row each): pick the layer info from " + LAYER_INFO_DIR
         + " (or press + > Weight-Blended), then its Weightmap File:",
     ]
@@ -669,9 +673,17 @@ def build(force=False):
     def streaming():
         _streaming_settings()
 
+    def landmarks():
+        # Canon landmarks and new island lamps from Art/World/landmarks.json (T36). Placed after the
+        # landscape exists they trace onto it; before, they use the baked heights.
+        import importlib
+        import lyris_build_landmarks
+        importlib.reload(lyris_build_landmarks)
+        lyris_build_landmarks.build_landmarks(m)
+
     for name, fn in [("materials", materials), ("sky and lighting", sky), ("water zone", water_zone),
                      ("ocean", ocean), ("lakes", lakes), ("rivers", rivers), ("world bounds", bounds),
-                     ("player start", player_start), ("streaming settings", streaming)]:
+                     ("player start", player_start), ("landmarks", landmarks), ("streaming settings", streaming)]:
         _step(name, fn)
 
     marker = b.spawn(unreal.Note, "Marker", (0, 0, 50000), folder="Gameplay")
@@ -690,7 +702,7 @@ def build(force=False):
 
 def _finish_landscape(landscape, eas, manifest):
     """Applies the material and settings to an imported landscape and checks its placement."""
-    mat = unreal.load_asset(f"{MAT_DIR}/M_LyrisWorldTerrain_v{BUILD_VERSION}")
+    mat = unreal.load_asset(f"{MAT_DIR}/M_LyrisWorldTerrain_v{TERRAIN_MAT_VERSION}")
     proxies = _landscape_proxies(eas)
     for proxy in proxies:
         if mat:
