@@ -33,7 +33,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage as nd
 
-BAKE_VERSION = 1
+BAKE_VERSION = 2  # 2: new island chains A to H (T36)
 SEED = 1729
 HERE = os.path.dirname(os.path.abspath(__file__))
 ATLAS = os.path.join(HERE, "atlas")
@@ -74,6 +74,21 @@ CANON_BOXES = [
     (1590, -4010, 1710, -3890, 60),   # The Delvers' Gate
 ]
 
+# Ground pads for canon builds the 25 m atlas is too coarse to hold (thin headlands, quays, a
+# statue islet, flat build platforms). Levels are MC Y. mode "raise" only lifts ground (never
+# digs), "set" flattens to the level. Shapes: ("circle", x, z, r), ("box", x0, z0, x1, z1),
+# ("line", x0, z0, x1, z1, width, y at the far end). Each fades out over `feather` metres.
+CANON_PADS = [  # (name, shape, MC Y, feather m, mode)
+    ("Ilwen's headland", ("circle", 127, -2343, 20), 69.0, 18.0, "raise"),
+    ("Harbour promenade and Chapel of Lamps", ("box", 112, -2357, 250, -2300), 64.5, 12.0, "raise"),
+    ("East quay", ("box", 266, -2527, 310, -2360), 64.0, 8.0, "raise"),
+    ("Syrena's islet", ("circle", 247, -2462, 9), 64.0, 6.0, "raise"),
+    ("Keep Elariel bailey", ("box", 466, -2568, 580, -2524), 138.0, 20.0, "set"),
+    ("Observatory platform", ("circle", 1326, -2980, 34), 263.0, 30.0, "set"),
+    ("Delvers' court", ("circle", 1800, -3955, 18), 155.0, 10.0, "set"),
+    ("Delvers' cleft", ("line", 1660, -3950, 1785, -3955, 10, 155.0), 136.0, 8.0, "set"),
+]
+
 # Volcanoes: (name, MC x, MC z, cone radius m, rim height m (None: keep the map's own summit,
 # no new cone), crater radius m, crater depth m). The West Volcano (Cinderhorn, Carapotl) is
 # canon on Saltreach's snowy spine (DECISIONS 2026-10-20): its highest spine peak becomes a cone.
@@ -84,6 +99,54 @@ VOLCANOES = [
 ]
 
 SPAWN_MC = (200.5, 65.0, -2287.5)  # Quiet Reach spawn on the server, Moonharbor
+
+# New island chains A to H (design/world_map.md section 4, approved 2026-10-20). Each islet is an
+# ellipse: (MC x, MC z, radius x m, radius z m, rotation deg, peak m above sea, profile). Profiles:
+#   skerry   low rough rock dome          hill     rounded wooded hills
+#   plateau  flat top, soft low cliffs    dune     low sand dunes
+#   stack    sheer sea stack, flat top    ice      snow dome with icy cliffs
+#   pale     smooth, washed-out rolling   rocky    ridged rocky hills, no cone
+# Biome weights feed the paint layers (forest, rock, snow, sand, pale = the Salt layer's cream).
+# "beach" (0..1) is how much soft sand shelf the coast gets; cliff profiles get none.
+# Every islet keeps at least 250 m of open water from the existing coasts (checked at bake start).
+ISLANDS = [
+    {"id": "A", "name": "Lampwick Skerries", "beach": 0.2,
+     "biome": {"rock": 0.75, "forest": 0.0},
+     "islets": [(-3250, -4700, 70, 45, 20, 12.0, "skerry"), (-2950, -4615, 50, 35, 10, 8.0, "skerry"),
+                (-2650, -4520, 60, 40, 15, 11.0, "skerry"), (-2350, -4430, 45, 32, 0, 7.0, "skerry"),
+                (-2050, -4400, 75, 50, -10, 14.0, "skerry"), (-1750, -4440, 55, 38, -20, 9.0, "skerry")]},
+    {"id": "B", "name": "Hushed Isles", "beach": 0.35,
+     "biome": {"forest": 1.0, "rock": 0.15},
+     "islets": [(-7900, -4950, 340, 290, 30, 42.0, "hill"), (-7350, -4650, 270, 220, -15, 34.0, "hill"),
+                (-8150, -4430, 210, 170, 60, 28.0, "hill"), (-7520, -5320, 160, 130, 0, 22.0, "hill"),
+                (-7020, -5050, 115, 95, 40, 16.0, "hill")]},
+    {"id": "C", "name": "Wickstones", "beach": 0.5,
+     "biome": {"forest": 0.15},
+     "islets": [(7850, 1900, 260, 230, 10, 10.0, "plateau", "clearing"), (8260, 1680, 175, 140, -25, 9.0, "plateau"),
+                (7700, 2350, 150, 120, 35, 8.0, "plateau"), (8220, 2220, 120, 100, 0, 7.0, "plateau")]},
+    {"id": "D", "name": "Tallow Banks", "beach": 1.0,
+     "biome": {"sand": 0.85, "forest": 0.0},
+     "islets": [(10200, -1000, 310, 160, 25, 7.0, "dune"), (10650, -640, 240, 130, 40, 6.0, "dune"),
+                (9850, -650, 200, 110, 10, 5.0, "dune"), (10560, -1270, 170, 100, 30, 4.5, "dune")]},
+    {"id": "E", "name": "Southing Stones", "beach": 0.25,
+     "biome": {"rock": 0.6, "forest": 0.0},
+     "islets": [(0, 6900, 280, 220, 15, 22.0, "hill"), (420, 6680, 75, 65, 0, 60.0, "stack"),
+                (390, 7120, 95, 80, 30, 48.0, "stack")]},
+    {"id": "F", "name": "Rime Skerries", "beach": 0.0,
+     "biome": {"snow": 1.0, "rock": 0.3},
+     "islets": [(-300, -10100, 480, 400, 20, 52.0, "ice"), (620, -9740, 380, 320, -30, 44.0, "ice"),
+                (820, -10430, 300, 260, 10, 36.0, "ice"), (-260, -9290, 250, 200, 45, 28.0, "ice")]},
+    {"id": "G", "name": "Unremembered Isles", "beach": 0.6,
+     "biome": {"pale": 0.45, "forest": 0.7, "rock": 0.1},  # washed-out, half-drawn green
+     "islets": [(-100, 10500, 640, 560, 20, 68.0, "pale"), (1450, 10200, 520, 470, -20, 56.0, "pale"),
+                (1000, 11300, 440, 400, 50, 46.0, "pale")]},
+    {"id": "H", "name": "Ember Isle", "beach": 0.15,
+     "biome": {"forest": 0.85, "rock": 0.45},
+     "islets": [(-7800, 8900, 850, 700, 25, 95.0, "rocky"), (-6600, 9500, 210, 170, 0, 30.0, "rocky")]},
+]
+ISLAND_SHELF = {"skerry": 0.08, "hill": 0.05, "plateau": 0.12, "dune": 0.03, "stack": 0.45, "ice": 0.12,
+                "pale": 0.05, "rocky": 0.08}  # underwater slope off the coast (m down per m out)
+ISLAND_CLEARING_R = (38.0, 70.0)  # Wickstones ring clearing: flat and treeless inside, blended out to here
 
 
 # ----------------------------------------------------------------------------- small helpers
@@ -522,6 +585,167 @@ def volcanoes(F, x, z, h, base, noise):
     return h, volc
 
 
+def _islet_frame(islet, x, z):
+    """Normalised radius (0 centre, 1 mean coast) of points in an islet's rotated ellipse."""
+    cx, cz, rx, rz, rot = islet[:5]
+    a = np.radians(rot)
+    dx, dz = x - cx, z - cz
+    u = (dx * np.cos(a) + dz * np.sin(a)) / rx
+    v = (-dx * np.sin(a) + dz * np.cos(a)) / rz
+    return np.hypot(u, v)
+
+
+def _islet_profile(kind, t, x, z, noise, salt):
+    """Land shape 0..1 (1 = peak) for t in 0..1."""
+    tl = np.clip(t, 0.0, 1.0)
+    if kind == "skerry":
+        rough = noise.ridged(x, z, 45.0, 3, salt=salt)
+        return (1.0 - tl ** 2) ** 0.8 * (0.7 + 0.5 * rough)
+    if kind == "hill":
+        lumps = noise.fbm(x, z, 140.0, 3, salt=salt)
+        return np.clip((1.0 - tl ** 1.8) ** 1.4 * (0.8 + 0.35 * lumps), 0, None)
+    if kind == "plateau":
+        return (1.0 - smoothstep(tl, 0.72, 1.0)) * (0.92 + 0.08 * noise.fbm(x, z, 90.0, 2, salt=salt))
+    if kind == "dune":
+        wx, wz = noise.warp(x, z, 160.0, 40.0, salt=salt)
+        ripples = noise.ridged(wx, wz * 0.45, 70.0, 2, salt=salt + 1)  # long dune crests
+        return (1.0 - tl ** 2) ** 1.2 * (0.55 + 0.45 * ripples)
+    if kind == "stack":
+        return (1.0 - smoothstep(tl, 0.8, 1.0)) * (0.94 + 0.06 * noise.fbm(x, z, 30.0, 2, salt=salt))
+    if kind == "ice":
+        return (1.0 - tl ** 2.6) ** 1.1 * (0.85 + 0.2 * noise.fbm(x, z, 160.0, 3, salt=salt))
+    if kind == "pale":
+        return (1.0 - tl ** 2) ** 1.6 * (0.9 + 0.12 * noise.fbm(x, z, 300.0, 2, salt=salt))
+    if kind == "rocky":
+        wx, wz = noise.warp(x, z, 500.0, 160.0, salt=salt)
+        ridges = noise.ridged(wx, wz, 380.0, 4, salt=salt)
+        return np.clip((1.0 - tl ** 1.6) ** 1.3 * (0.55 + 0.6 * ridges), 0, None)
+    raise ValueError(f"unknown islet profile {kind}")
+
+
+def _islet_reach(islet):
+    """How far (m) from the centre the islet's shape and shelf can matter."""
+    return max(islet[2], islet[3]) * 1.5 + 650.0
+
+
+def islands(x, z, h, noise):
+    """Sculpts the new island chains into the sea. Returns (height, masks dict, island land 0..1)."""
+    out = {k: np.zeros(np.shape(x), np.float32) for k in ("forest", "rock", "snow", "sand", "pale", "clearing")}
+    land_all = np.zeros(np.shape(x), np.float32)
+    for ci, chain in enumerate(ISLANDS):
+        for k, islet in enumerate(chain["islets"]):
+            cx, cz, rx, rz, _rot, peak, kind = islet[:7]
+            reach = _islet_reach(islet)
+            sel = (np.abs(x - cx) < reach) & (np.abs(z - cz) < reach)
+            if not sel.any():
+                continue
+            salt = 40 + ci * 8 + k
+            xs, zs = x[sel], z[sel]
+            # Natural coastline: warp the ellipse with noise scaled to the islet's size.
+            size = (rx + rz) * 0.5
+            wx, wz = noise.warp(xs, zs, max(size * 0.7, 40.0), size * 0.3, salt=salt)
+            t = _islet_frame(islet, wx, wz)
+            t = t / (1.0 + 0.22 * noise.fbm(xs, zs, max(size * 0.3, 25.0), 4, salt=salt + 2))
+            # Headlands and coves: a few lobes around the outline, so no islet reads as a blob.
+            ang = np.arctan2(zs - cz, xs - cx)
+            lobes = noise.fbm(np.cos(ang) * 900.0 + cx, np.sin(ang) * 900.0 + cz, 520.0, 3, salt=salt + 6)
+            t = t / (1.0 + 0.32 * lobes * smoothstep(t, 0.3, 0.8))
+            f = _islet_profile(kind, t, xs, zs, noise, salt)
+            land = np.maximum(peak * f, 0.15 + (1.0 - np.clip(t, 0, 1)) * size * 0.02)
+            if chain["beach"] > 0 and kind not in ("stack", "skerry"):
+                from_coast = (1.0 - np.clip(t, 0, 1)) * size
+                shelf_land = 0.12 + from_coast * 0.035
+                bw = chain["beach"] * (1.0 - smoothstep(from_coast, 18.0, 45.0))
+                land = lerp(land, np.minimum(land, shelf_land), bw)
+            clear_w = np.zeros_like(xs, dtype=np.float32)
+            if "clearing" in islet[7:]:
+                d = np.hypot(xs - cx, zs - cz)
+                clear_w = (1.0 - smoothstep(d, *ISLAND_CLEARING_R)).astype(np.float32)
+                land = lerp(land, np.float32(peak), clear_w)
+            # The shelf slopes off the coast, then drops well below the seabed long before the edge of
+            # the sampled box, so the open seabed takes over without a seam.
+            out_m = np.maximum(t - 1.0, 0.0) * size
+            under = (-0.3 - out_m * ISLAND_SHELF[kind] - smoothstep(out_m, 120.0, 420.0) * 80.0
+                     + noise.fbm(xs, zs, 120.0, 2, salt=salt + 3) * 0.6)
+            # Hard guarantee, by true distance: nothing of this islet reaches the sampling box edge.
+            edge = np.maximum(np.abs(xs - cx), np.abs(zs - cz))
+            under = under - smoothstep(edge, reach * 0.6, reach * 0.85) * 300.0
+            field = np.where(t < 1.0, land, np.minimum(under, -0.3))
+            hs = h[sel]
+            h[sel] = np.maximum(hs, field)
+            lw = smoothstep(field, 0.0, 1.0) * (t < 1.15)
+            land_all[sel] = np.maximum(land_all[sel], lw)
+            for name, w in chain["biome"].items():
+                v = lw * w
+                if name == "forest":
+                    v = np.clip(v * (1.0 - clear_w) + noise.fbm(xs, zs, 90.0, 2, salt=salt + 5) * 0.2 * lw * w, 0, 1)
+                out[name][sel] = np.maximum(out[name][sel], v)
+            out["clearing"][sel] = np.maximum(out["clearing"][sel], clear_w * lw)
+    return h, out, land_all
+
+
+def island_footprint(x, z):
+    """True where a new island (with a little margin) lies: excluded from the coastline check."""
+    m = np.zeros(np.shape(x), bool)
+    for chain in ISLANDS:
+        for islet in chain["islets"]:
+            m |= _islet_frame(islet, x, z) < 1.6
+    return m
+
+
+def island_clearance(F, log=print):
+    """Closest existing coast to each islet's outline (with its coastline wobble margin)."""
+    worst = 1e9
+    for chain in ISLANDS:
+        for k, islet in enumerate(chain["islets"]):
+            cx, cz, rx, rz, rot = islet[:5]
+            a = np.radians(rot)
+            ang = np.linspace(0, 2 * np.pi, 48, endpoint=False)
+            u, v = np.cos(ang) * rx * 1.2, np.sin(ang) * rz * 1.2
+            px = cx + u * np.cos(a) - v * np.sin(a)
+            pz = cz + u * np.sin(a) + v * np.cos(a)
+            gap = float(-F.mid("coast_sd", px, pz).max())
+            worst = min(worst, gap)
+            if gap < 250.0:
+                log(f"[Lyris] WARNING island {chain['id']}{k + 1} ({chain['name']}) is only {gap:.0f} m from an existing coast")
+        # islets of one chain must not merge
+        isl = chain["islets"]
+        for i in range(len(isl)):
+            for j in range(i + 1, len(isl)):
+                d = np.hypot(isl[i][0] - isl[j][0], isl[i][1] - isl[j][1])
+                if d < (sum(isl[i][2:4]) + sum(isl[j][2:4])) * 0.5 * 1.1:
+                    log(f"[Lyris] WARNING islets {chain['id']}{i + 1} and {chain['id']}{j + 1} may touch ({d:.0f} m apart)")
+    log(f"[Lyris] new islands: {sum(len(c['islets']) for c in ISLANDS)} islets in {len(ISLANDS)} chains, "
+        f"nearest existing coast {worst:.0f} m away")
+
+
+def canon_pads(x, z, h):
+    """Applies CANON_PADS (heights in m above sea)."""
+    for _name, shape, level_y, feather, mode in CANON_PADS:
+        kind = shape[0]
+        level = np.full(np.shape(x), level_y - 63.0, np.float32)
+        if kind == "circle":
+            _, cx, cz, r = shape
+            d = np.maximum(np.hypot(x - cx, z - cz) - r, 0.0)
+        elif kind == "box":
+            _, x0, z0, x1, z1 = shape
+            d = np.hypot(np.maximum(np.maximum(x0 - x, x - x1), 0.0), np.maximum(np.maximum(z0 - z, z - z1), 0.0))
+        elif kind == "line":
+            _, x0, z0, x1, z1, width, y_end = shape
+            dx, dz = x1 - x0, z1 - z0
+            t = np.clip(((x - x0) * dx + (z - z0) * dz) / (dx * dx + dz * dz), 0.0, 1.0)
+            d = np.maximum(np.hypot(x - x0 - t * dx, z - z0 - t * dz) - width * 0.5, 0.0)
+            level = (lerp(level_y, y_end, t) - 63.0).astype(np.float32)
+        else:
+            raise ValueError(kind)
+        w = 1.0 - smoothstep(d, 0.0, feather)
+        if not np.any(w > 0):
+            continue
+        target = np.maximum(h, level) if mode == "raise" else level
+        h = lerp(h, target, w)
+    return h
+
+
 _BASE_CACHE = {}
 
 
@@ -613,16 +837,27 @@ def terrain(F, noise, x, z):
     seabed = np.minimum(seabed, -0.25)
     under = 1.0 - smoothstep(sd, -12.0, 0.0)
     h = np.where(sd < 0, lerp(np.minimum(h, -0.25), seabed, under), h)
+    # New island chains A to H rise out of that seabed (only where the sea is; never on old land).
+    h_sea = h
+    h, isl, isl_land = islands(x, z, h.copy(), noise)
+    h = np.where(sd < 0, h, h_sea)
+    isl_land = isl_land * (sd < 0)
+    h = canon_pads(x, z, h)
     # Keep every coastline where the map has it: land stays above the sea unless a lake or a
     # sea-level river was carved there on purpose.
     carved = (river_bed > 0.3) | (lake_shore > 0.3) | (lsd > 0)
     h = np.where((sd > 0) & ~carved, np.maximum(h, 0.1), h)
     h = np.clip(h, H_MIN + 1.0, H_MIN + H_SPAN - 1.0)
 
+    on_isl = isl_land > 0.01
+    isl_beach = isl["sand"] + (h < 2.0) * isl_land * (1.0 - isl["snow"]) * (1.0 - isl["clearing"])
     masks = {
-        "forest": F.src_mask("forest", x, z), "snow": F.src_mask("snow", x, z),
-        "rock": F.src_mask("rock", x, z), "badlands": bad, "salt": salt, "volcanic": volc,
-        "beach": np.maximum(beach_w, (sd < 25.0) * (h < 2.5) * (1.0 - mtn)),
+        "forest": np.where(on_isl, isl["forest"], F.src_mask("forest", x, z)),
+        "snow": np.where(on_isl, isl["snow"], F.src_mask("snow", x, z)),
+        "rock": np.where(on_isl, isl["rock"], F.src_mask("rock", x, z)), "badlands": bad,
+        "salt": np.maximum(salt, isl["pale"]), "volcanic": volc,
+        "beach": np.maximum.reduce([beach_w, (sd < 25.0) * (h < 2.5) * (1.0 - mtn),
+                                    np.clip(isl_beach, 0, 1)]),
         "river": river_bed, "lake_shore": lake_shore, "sea": (h < -0.4).astype(np.float32),
         "desert": F.src_mask("desert", x, z), "water": np.maximum(water, 0.0) * (water > h),
     }
@@ -758,6 +993,7 @@ def main(argv=None):
     print("[Lyris] whole-map fields ...")
     fields = Fields()
     _init_worker(fields, args.seed)
+    island_clearance(fields)
 
     preview_px = max(1, min(tile_px, 2048 // tiles))
     jobs = [(tx, ty, tile_px, total, args.out, preview_px) for ty in range(tiles) for tx in range(tiles)]
@@ -811,6 +1047,10 @@ def main(argv=None):
         "spawn": {"mc": list(SPAWN_MC), "ue": mc_to_ue(sx, sz, float(spawn_h[0]) + 1.0), "yaw": -90.0,
                   "ground_m": round(float(spawn_h[0]), 2)},
         "volcanoes": [{"name": v[0], "ue": mc_to_ue(v[1], v[2]), "crater_radius_m": v[5]} for v in VOLCANOES],
+        "islands": [{"id": c["id"], "name": c["name"],
+                     "islets": [{"centre_mc": [i[0], i[1]], "centre_ue": mc_to_ue(i[0], i[1], i[5]),
+                                 "radius_m": [i[2], i[3]], "rotation_deg": i[4], "peak_m": i[5], "profile": i[6]}
+                                for i in c["islets"]]} for c in ISLANDS],
         "lakes": fields.lakes,
         "rivers": fields.rivers,
     }
@@ -824,10 +1064,14 @@ def main(argv=None):
     jj, ii = np.meshgrid(c, c, indexing="ij")
     ours = nd.map_coordinates(big_h, [jj, ii], order=1) > 0
     atlas = fields.h_src > 0
-    agree = (ours == atlas).mean() * 100
+    cc = (np.arange(SRC_N) + 0.5) * SRC_PX + WORLD_MIN
+    zz_, xx_ = np.meshgrid(cc, cc, indexing="ij")
+    old = ~island_footprint(xx_, zz_)  # the new islands are land on purpose
+    agree = (ours == atlas)[old].mean() * 100
+    new_land = (ours & ~old).sum() * SRC_PX * SRC_PX / 1e6
     print(f"[Lyris] done in {time.time() - t0:.0f}s: {len(jobs)} tiles, heights {lo:.1f} .. {hi:.1f} m, "
           f"land {ours.mean() * 100:.1f}% (atlas {atlas.mean() * 100:.1f}%), coast agreement {agree:.2f}%, "
-          f"{len(fields.lakes)} lakes, {len(fields.rivers)} upland river reaches, spawn ground "
+          f"new islands {new_land:.2f} km2, {len(fields.lakes)} lakes, {len(fields.rivers)} upland river reaches, spawn ground "
           f"{float(spawn_h[0]):.1f} m")
     print(f"[Lyris] scale {scale_xy:.4f} x {scale_xy:.4f} x 100, preview {prev}")
     return 0
