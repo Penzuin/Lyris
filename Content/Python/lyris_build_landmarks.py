@@ -285,6 +285,31 @@ class _Spawner:
         return actor
 
 
+class _BakedGround:
+    """Ground from the heights stored in the JSON only (no traces)."""
+
+    def mc_y(self, x, z, baked):
+        return baked
+
+
+def markers(prefix="", data=None):
+    """{name: ((x, y, z) UE cm, yaw deg)} for every landmark marker whose name starts with `prefix`,
+    without spawning anything. lyris_build_world uses this for the T37 dock spot (T37_BoatStart,
+    T37_DockLamp, T37_Mooring, T37_StepAshore on Lantern Pier)."""
+    data = data or load_landmarks()
+    found = {}
+    if data is None:
+        return found
+    ground = _BakedGround()
+    for lm in data.get("landmarks", []):
+        for mk in lm.get("markers", []):
+            if not mk["n"].startswith(prefix):
+                continue
+            x, z = mk["c"]
+            found[mk["n"]] = ((x * 100.0, z * 100.0, _z_of(mk, ground)), float(mk.get("yaw", 0.0)))
+    return found
+
+
 def _ours(actor):
     try:
         if unreal.Name(LM_TAG) in list(actor.get_editor_property("tags")):
