@@ -1,14 +1,20 @@
-"""Builds the Lyris world map: the real Lyris Minecraft map at full size, 25 x 25 km.
+"""Builds the Lyris world map: the real Lyris Minecraft map at full size, 25 x 25 km. This is the game's
+only map (T37 retired the Harbor test map).
 
 /Game/Lyris/Maps/Lyris (World Partition) gets: the landscape baked by Art/World/bake_terrain.py
-with a painterly auto material driven by its paint layers and slope, a Water plugin ocean over
-the whole world plus lakes and upland rivers, sky and golden-hour lighting like Harbor, world
-bounds, and a PlayerStart on Moonharbor's waterfront.
+with a painterly auto material driven by its paint layers and slope, the one sea (T17/T19: a
+camera-following Gerstner clipmap reading MPC_Sea, out past the horizon from anywhere in the world),
+Water plugin lakes and upland rivers, sky and golden-hour lighting, world bounds, the canon landmarks
+(lyris_build_landmarks.py), and the player's start in Moonharbor: the boat moored on Lantern Pier, the
+dock lamp, the step-ashore point and the harbor mooring at the T37_* markers from Art/World/landmarks.json.
 
 The landscape itself is imported once by hand (Unreal's tiled landscape import is not exposed
 to Python in a way we can rely on): build() prepares everything, then logs the exact steps.
 Run build() again after the import and it finishes the landscape (material, Nanite, checks).
 Rebuilds only replace actors this script made (tag LyrisWorldBuild); the landscape is kept.
+
+init_unreal.py calls build(startup=True) each time the editor opens: it builds the map when
+BUILD_VERSION is newer than the map's, and otherwise only reports what is left to do.
 
     import lyris_build_world as w; w.build()            # build or finish
     import lyris_build_world as w; w.build(force=True)  # rebuild even if up to date
@@ -17,16 +23,26 @@ Rebuilds only replace actors this script made (tag LyrisWorldBuild); the landsca
 Landmarks (T36): lyris_build_landmarks.py places the canon landmarks and the new island lamps from
 Art/World/landmarks.json as one of the build steps; lyris_build_landmarks.rebuild() redoes only those.
 
+Gameplay actors carry tags other lanes can find them by (so nothing needs a hardcoded position):
+    LyrisPlayerBoat      the boat (ALyrisBoat) moored at T37_BoatStart
+    LyrisDockPoint       a TargetPoint where you step ashore (also the boat's DockPoint)
+    LyrisTideHome        the same TargetPoint: where the tide brings a drifting swimmer home
+    LyrisHarborMooring   the Moonharbor ALyrisHarborMooring (T21) at T37_Mooring
+    LyrisDockLamp        the dock lamp's parts and light at T37_DockLamp (T3 lamp component goes here)
+
 Coordinates: design/world_map.md (MC X -> UE X, MC Z -> UE Y, UE Z = (MC Y - 63) * 100).
-Not wired into init_unreal.py yet: T37 (Lead) makes Lyris the default map.
 """
 
+import array
 import json
+import math
 import os
+import struct
 
 import unreal
 
-BUILD_VERSION = 2  # 2: landmarks and new island lamps (T36, lyris_build_landmarks.py)
+BUILD_VERSION = 3  # 2: landmarks and new island lamps (T36). 3: one sea (T19 clipmap, no Water ocean), boat, dock
+                   # point, mooring and dock lamp in Moonharbor, player start on Lantern Pier (T37)
 TERRAIN_MAT_VERSION = 1  # versions the terrain material and its textures separately from the actors
 MAP_PATH = "/Game/Lyris/Maps/Lyris"
 MAT_DIR = "/Game/Lyris/Materials/World"
@@ -42,7 +58,34 @@ MANIFEST = "terrain_manifest.json"
 DETAIL_TEXTURES = "Art/TestIsland/textures"  # painted ground textures shared with Harbor
 ISLAND_META = "Art/TestIsland/island_meta.json"
 
-# Colours are the house palette (Harbor PALETTE and ISLAND_PALETTE); no new hex values.
+# The house palette: Storybook Painterly (sRGB hex, roughness, metallic). Moved here from the retired
+# Harbor script (T37); every lane's world art takes its colours from PALETTE and ISLAND_PALETTE.
+PALETTE = {
+    "Sand":       ("F1E9DC", 0.9, 0.0),
+    "Grass":      ("8A9A48", 0.85, 0.0),
+    "Terracotta": ("C8643A", 0.7, 0.0),
+    "Clay":       ("36221A", 0.8, 0.0),
+    "Wood":       ("8B5A3A", 0.75, 0.0),
+    "DarkWood":   ("4A2A1C", 0.8, 0.0),
+    "Salt":       ("F1E9DC", 0.6, 0.0),
+    "RedBand":    ("C8443A", 0.6, 0.0),
+    "Gold":       ("E3AE45", 0.35, 0.6),
+    "Sail":       ("F7EEDC", 0.9, 0.0),
+    "Stone":      ("9C9488", 0.9, 0.0),
+    "Leaf":       ("6E8A3A", 0.85, 0.0),
+    "Shallows":   ("7FD0D6", 0.1, 0.0),
+    # Sea (T19): painted bands from trough to crest, a cream foam that matches Salt and Sail.
+    "SeaTrough":  ("1F6A80", 0.2, 0.0),
+    "Sea":        ("2E8A9C", 0.18, 0.0),
+    "SeaCrest":   ("5DB8C2", 0.16, 0.0),
+    "SeaFoam":    ("F4EEE0", 0.8, 0.0),
+}
+ISLAND_PALETTE = {
+    "grass": "9DB872", "grass_shade": "6E9061", "sand": "EFE2C4", "path": "CDAE86",
+    "rock_lit": "D6BC9F", "rock_shade": "8E7680", "bark": "8A6A5A",
+}
+
+# Colours below are the house palette (PALETTE and ISLAND_PALETTE); no new hex values.
 LAYER_LOOK = {  # layer: (colour, second colour or None, detail texture, roughness)
     "Grass":    ("9DB872", "6E9061", "grass", 0.92),
     "Forest":   ("6E9061", "4F7558", "grass", 0.95),
@@ -62,6 +105,33 @@ WP_CELL_M = 256
 WP_LOADING_RANGE_M = 1536
 
 LAKE_MIN_AREA_M2 = 2500.0  # matches the bake
+WORLD_HALF_FALLBACK_CM = 1250000.0  # MC -12500..12500; the manifest's world_bounds_ue say the same
+
+# Boat materials: ALyrisBoat and ULyrisHullComponent load these by path in C++, so the build makes them
+# (the retired Harbor script used to).
+PROTO_MAT_DIR = "/Game/Lyris/Materials/Prototype"
+PROTO_MATERIALS = ("Wood", "DarkWood", "Sail", "Terracotta", "Gold")
+
+# Gameplay tags other lanes can look the T37 actors up by (see the module notes).
+TAG_BOAT = "LyrisPlayerBoat"
+TAG_DOCK_POINT = "LyrisDockPoint"
+TAG_TIDE_HOME = "LyrisTideHome"
+TAG_MOORING = "LyrisHarborMooring"
+TAG_DOCK_LAMP = "LyrisDockLamp"
+
+# The T37 dock spot on Lantern Pier's east side, read from the T37_* markers in Art/World/landmarks.json.
+# These are the same spots (UE cm, yaw) as T36 placed them, used only if the markers are missing.
+DOCK_MARKERS_FALLBACK = {
+    "T37_BoatStart": ((14700.0, -240400.0, 0.0), -90.0),
+    "T37_DockLamp": ((13950.0, -241400.0, 320.0), 0.0),
+    "T37_Mooring": ((14700.0, -239800.0, 0.0), -90.0),
+    "T37_StepAshore": ((13900.0, -240400.0, 360.0), 0.0),
+}
+BOAT_FLOAT_Z = 25.0            # cm above sea level, as on the Harbor map
+STAND_Z = 60.0                 # a walker placed at a marker on the deck stands this far above it (capsule clear)
+PLAYER_START_FROM_STEP = (-300.0, 1200.0)  # on the pier deck 12 m shoreward of the berth, facing the boat
+BOAT_WORLD_RADIUS = 2000000.0  # ALyrisBoat clamps to this distance from the origin; past the world edges (T37 stopgap)
+DOCK_LAMP_LIGHT = (8000.0, 1800.0)  # intensity, radius: the Harbor dock lamp's light
 
 
 def _log(msg):
@@ -127,15 +197,15 @@ def load_manifest():
 class _Graph:
     """Small helper for building material graphs from Python (same pattern as the Harbor script)."""
 
-    def __init__(self, name):
-        self.name = f"M_{name}_v{TERRAIN_MAT_VERSION}"  # versioned: a rebuild never edits a material in use
-        self.path = f"{MAT_DIR}/{self.name}"
+    def __init__(self, name, version=TERRAIN_MAT_VERSION, folder=MAT_DIR):
+        self.name = f"M_{name}_v{version}"  # versioned: a rebuild never edits a material in use
+        self.path = f"{folder}/{self.name}"
         self.exists = unreal.EditorAssetLibrary.does_asset_exist(self.path)
         if self.exists:
             self.mat = unreal.load_asset(self.path)
         else:
             tools = unreal.AssetToolsHelpers.get_asset_tools()
-            self.mat = tools.create_asset(self.name, MAT_DIR, unreal.Material, unreal.MaterialFactoryNew())
+            self.mat = tools.create_asset(self.name, folder, unreal.Material, unreal.MaterialFactoryNew())
         self.mel = unreal.MaterialEditingLibrary
         self.y = 0
         self._wp = self._nrm = None
@@ -198,8 +268,10 @@ class _Graph:
             self._nrm = self.node(unreal.MaterialExpressionVertexNormalWS)
         return self.mask(self._nrm, "B")
 
-    def tex(self, texture, uv):
+    def tex(self, texture, uv, linear=False):
         expr = self.node(unreal.MaterialExpressionTextureSample, texture=texture)
+        if linear:
+            expr.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
         self.link(uv, expr, "", "UVs")
         return expr
 
@@ -337,6 +409,513 @@ def _layer_infos():
         infos[name] = info
     _log(f"layer infos ready: {', '.join(infos) or 'none'}")
     return infos
+
+
+# ----------------------------------------------------------------------------- boat materials
+
+def _plain_material(name, hex_str, roughness, metallic, emissive=0.0, folder=PROTO_MAT_DIR):
+    """A flat palette material, as the Harbor script made them (the boat loads these by path)."""
+    path = f"{folder}/M_{name}"
+    if unreal.EditorAssetLibrary.does_asset_exist(path):
+        return unreal.load_asset(path)
+    tools = unreal.AssetToolsHelpers.get_asset_tools()
+    mat = tools.create_asset(f"M_{name}", folder, unreal.Material, unreal.MaterialFactoryNew())
+    mel = unreal.MaterialEditingLibrary
+    color = mel.create_material_expression(mat, unreal.MaterialExpressionConstant3Vector, -400, 0)
+    color.set_editor_property("constant", _linear(hex_str))
+    mel.connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    rough = mel.create_material_expression(mat, unreal.MaterialExpressionConstant, -400, 200)
+    rough.set_editor_property("r", roughness)
+    mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    if metallic:
+        metal = mel.create_material_expression(mat, unreal.MaterialExpressionConstant, -400, 300)
+        metal.set_editor_property("r", metallic)
+        mel.connect_material_property(metal, "", unreal.MaterialProperty.MP_METALLIC)
+    if emissive:
+        mult = mel.create_material_expression(mat, unreal.MaterialExpressionMultiply, -200, 400)
+        mult.set_editor_property("const_b", emissive)
+        mel.connect_material_expressions(color, "", mult, "A")
+        mel.connect_material_property(mult, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    mel.recompile_material(mat)
+    unreal.EditorAssetLibrary.save_loaded_asset(mat)
+    return mat
+
+
+def _prototype_materials():
+    made = {}
+    for name in PROTO_MATERIALS:
+        hex_str, rough, metal = PALETTE[name]
+        made[name] = _plain_material(name, hex_str, rough, metal)
+    made["LampGlass"] = _plain_material("LampGlass", MOONGLASS, 0.2, 0.0, emissive=25.0)
+    return made
+
+
+# ----------------------------------------------------------------------------- the sea (T17 / T19)
+# One sea for the whole world. The surface draws the same Gerstner waves the boat and swimmer feel (T17,
+# Source/Lyris/World/OCEAN_CONTRACT.md): ULyrisOceanSubsystem writes the wave values into MPC_Sea every
+# tick and the material reads them from there, so visuals never drift from physics. Ported from the
+# retired Harbor script (T19, Harbor v9) and widened to the whole world by T37.
+#
+#   MPC_Sea   the contract's names; defaults = the contract's calm waves and the Moonharbor calm zone,
+#             so the sea already has its shape before the C++ is compiled.
+#   mesh      a generated square clipmap that follows the camera: a 64 m core at 50 cm cells, then
+#             SEA_RINGS rings, each twice as coarse and twice as wide, out to about 65 km from the
+#             camera, so from anywhere in the 25 km world the sea runs past the horizon. Ring seams are
+#             stitched (no cracks). The material slides it under the camera in 32 m steps: the inner
+#             six rings stay exactly on their lattice, so the waves never swim; the outer rings are
+#             beyond every wave's distance fade (flat water), so their coarser lattice never shows.
+#   shading   painted bands from trough to crest, pale shallows and a lapping foam band from a
+#             world ground-height map, soft broken foam where crests get steep.
+
+SEA_VERSION = 1
+SEA_MPC_PATH = "/Game/Lyris/Materials/MPC_Sea"   # fixed by the ocean contract; the C++ loads it by path
+SEA_MAT_DIR = MAT_DIR
+SEA_MESH_DIR = f"/Game/Lyris/Meshes/WorldSea_v{SEA_VERSION}"
+SEA_TEXTURE_DIR = f"/Game/Lyris/Textures/WorldSeaGround_v{SEA_VERSION}"
+SEA_UNIT = 50.0             # cm: cell size of the core grid
+SEA_CORE_CELLS = 64         # core half-size in cells (64 x 50 cm = 32 m)
+SEA_SNAP_RINGS = 6          # rings that keep their exact lattice as the mesh follows the camera
+SEA_RINGS = 11              # all rings: the outer five are flat, distant water out to the horizon
+SEA_SNAP = SEA_UNIT * 2 ** SEA_SNAP_RINGS                # 32 m
+SEA_HALF = SEA_UNIT * SEA_CORE_CELLS * 2 ** SEA_RINGS    # 65.5 km from the camera to the mesh edge
+SEA_BOUNDS_EXTENSION = 2000000.0  # the mesh slides with the camera anywhere in the world (+-12.5 km and more)
+SEA_FADE_VERTEX = 8.0       # a wave shrinks away between 8 and 16 wavelengths from the camera in the mesh ...
+SEA_FADE_PIXEL = 16.0       # ... and between 16 and 32 in the shading normal (no shimmer, no aliasing)
+SEA_DEEP = -40000.0         # cm: ground beyond the ground map counts as open, deep sea
+
+# World ground under the sea, for shallows and shore foam: (file, encoding, metres = v * scale + offset).
+# The first that exists is used. A finer baked map is proposed for the Environment lane (see TASKS.md);
+# until then the atlas heightmap (25 m per pixel, MC Y = value * 1.5 - 64) gives the coasts.
+SEA_GROUND_SOURCES = [
+    ("Baked", "Art/World/tiles/World_SeaGround.png", 512.0, -128.0),          # 16-bit, bake height encoding
+    ("Atlas", "Art/World/atlas/hmap.png", 255.0 * 1.5, -64.0 - 63.0),        # 8-bit, MC Y -> metres from sea
+]
+
+# Contract defaults: (yaw deg, wavelength cm, amplitude cm, steepness) and the home calm zone. The calm
+# zone is Moonharbor's bay (MC -200, -2660; 550 m, easing out over 400 m), the same as
+# Config/DefaultGame.ini sets for ULyrisOceanSettings::HomeCalmZones.
+SEA_DEFAULT_WAVES = [(30.0, 6000.0, 45.0, 0.35), (75.0, 3100.0, 22.0, 0.30),
+                     (-20.0, 1700.0, 10.0, 0.25), (120.0, 900.0, 4.0, 0.20)]
+SEA_DEFAULT_CALM_ZONES = [(-20000.0, -266000.0, 55000.0, 40000.0)]
+SEA_DEFAULT_CALM_SCALE = 0.25
+
+_SEA_INPUTS = ["P", "Cam", "OceanTime", "EngineTime", "SeaLevel", "CalmAmplitudeScale",
+               "Wave0", "Wave1", "Wave2", "Wave3", "WaveSteepness",
+               "CalmZone0", "CalmZone1", "CalmZone2", "CalmZone3"]
+
+
+def _make_sea_collection():
+    """MPC_Sea with exactly the contract's parameter names (see OCEAN_CONTRACT.md)."""
+    # OceanTime -1 = "no ocean clock yet": the material then runs on engine time (see _sea_hlsl).
+    scalars = [("OceanTime", -1.0), ("SeaLevel", 0.0), ("CalmAmplitudeScale", SEA_DEFAULT_CALM_SCALE)]
+    vectors = []
+    for i, (yaw, length, amp, _steep) in enumerate(SEA_DEFAULT_WAVES):
+        rad = math.radians(yaw)
+        vectors.append((f"Wave{i}", (math.cos(rad), math.sin(rad), length, amp)))
+    vectors.append(("WaveSteepness", tuple(w[3] for w in SEA_DEFAULT_WAVES)))
+    for i in range(4):
+        zone = SEA_DEFAULT_CALM_ZONES[i] if i < len(SEA_DEFAULT_CALM_ZONES) else (0.0, 0.0, 0.0, 0.0)
+        vectors.append((f"CalmZone{i}", zone))
+
+    folder, name = SEA_MPC_PATH.rsplit("/", 1)
+    if unreal.EditorAssetLibrary.does_asset_exist(SEA_MPC_PATH):
+        mpc = unreal.load_asset(SEA_MPC_PATH)
+        have_s = list(mpc.get_editor_property("scalar_parameters"))
+        have_v = list(mpc.get_editor_property("vector_parameters"))
+        names = [str(p.get_editor_property("parameter_name")) for p in have_s + have_v]
+        if names == [n for n, _ in scalars] + [n for n, _ in vectors]:
+            # Already right (made by the Harbor script or an earlier build): update only the defaults, in
+            # place, so the parameter ids stay and nothing that uses it needs a recompile.
+            try:
+                for p, (_n, v) in zip(have_s, scalars):
+                    p.set_editor_property("default_value", v)
+                for p, (_n, v) in zip(have_v, vectors):
+                    p.set_editor_property("default_value", unreal.LinearColor(*v))
+                mpc.set_editor_property("scalar_parameters", have_s)
+                mpc.set_editor_property("vector_parameters", have_v)
+                unreal.EditorAssetLibrary.save_loaded_asset(mpc)
+            except Exception as exc:
+                _warn(f"MPC_Sea: could not update its defaults ({exc}); the C++ overwrites them while playing")
+            return mpc
+    else:
+        tools = unreal.AssetToolsHelpers.get_asset_tools()
+        mpc = tools.create_asset(name, folder, unreal.MaterialParameterCollection,
+                                 unreal.MaterialParameterCollectionFactoryNew())
+    mpc.set_editor_property("scalar_parameters", [
+        unreal.CollectionScalarParameter(parameter_name=n, default_value=v) for n, v in scalars])
+    mpc.set_editor_property("vector_parameters", [
+        unreal.CollectionVectorParameter(parameter_name=n, default_value=unreal.LinearColor(*v)) for n, v in vectors])
+    unreal.EditorAssetLibrary.save_loaded_asset(mpc)
+    return mpc
+
+
+def _sea_hlsl(fade, body):
+    """Custom-node HLSL: evaluates the contract's Gerstner sum at the undisplaced point p, then runs
+    `body`. Matches ULyrisOceanSubsystem::EvaluateAt term for term; the only addition is the distance
+    fade, which leaves every wave untouched within 8 wavelengths of the camera (72 m for the shortest
+    default wave) and only calms waves too small for the far rings to draw."""
+    return f"""
+float2 snap = floor(Cam.xy / {SEA_SNAP:.1f} + 0.5) * {SEA_SNAP:.1f};
+float2 p = P.xy + snap;
+// OceanTime is the clock (T17). Its default in MPC_Sea is -1, which only happens before the C++
+// runs (it always writes >= 0), so until then the sea runs on engine time instead of standing still.
+float t = OceanTime >= 0.0 ? OceanTime : EngineTime;
+
+// Roughness r(p) = 1 - max over used zones of (1 - smoothstep(Radius, Radius + Falloff, |p - Center|)).
+float4 zones[4] = {{ CalmZone0, CalmZone1, CalmZone2, CalmZone3 }};
+float calm = 0.0;
+[unroll] for (int j = 0; j < 4; j++)
+{{
+    float4 z = zones[j];
+    if (z.z > 0.0)
+    {{
+        float d = length(p - z.xy);
+        float u = z.w > 0.0 ? saturate((d - z.z) / z.w) : (d >= z.z ? 1.0 : 0.0);
+        calm = max(calm, 1.0 - u * u * (3.0 - 2.0 * u));
+    }}
+}}
+float rough = 1.0 - calm;
+float m = lerp(saturate(CalmAmplitudeScale), 1.0, rough);
+
+float4 waves[4] = {{ Wave0, Wave1, Wave2, Wave3 }};
+float steep[4] = {{ WaveSteepness.x, WaveSteepness.y, WaveSteepness.z, WaveSteepness.w }};
+float camDist = length(p - Cam.xy);
+float3 off = float3(0.0, 0.0, 0.0);
+float3 n = float3(0.0, 0.0, 1.0);
+float jxx = 1.0, jyy = 1.0, jxy = 0.0, ampSum = 0.0;
+[unroll] for (int i = 0; i < 4; i++)
+{{
+    float4 w = waves[i];
+    float k = 6.28318530718 / max(w.z, 1.0);
+    float omega = k * sqrt(980.0 / k);
+    float A0 = max(w.w, 0.0);
+    float Q = A0 > 1e-6 ? saturate(steep[i]) / (k * A0 * 4.0) : 0.0;
+    float A = A0 * m * saturate(2.0 - camDist / ({fade:.1f} * max(w.z, 1.0)));
+    float s, c;
+    sincos(k * dot(w.xy, p) - omega * t, s, c);
+    float kA = k * A;
+    off.xy += w.xy * (Q * A * c);
+    off.z += A * s;
+    n.x -= w.x * kA * c;
+    n.y -= w.y * kA * c;
+    n.z -= Q * kA * s;
+    jxx -= Q * kA * w.x * w.x * s;
+    jyy -= Q * kA * w.y * w.y * s;
+    jxy -= Q * kA * w.x * w.y * s;
+    ampSum += A0;
+}}
+n = normalize(n);
+{body}
+"""
+
+
+# World Position Offset: move the lattice under the camera, then displace it.
+_SEA_OFFSET_BODY = "return float3(snap + off.xy, SeaLevel + off.z - P.z);"
+
+# World-space shading normal (the material uses world-space normals).
+_SEA_NORMAL_BODY = "return n;"
+
+
+def _sea_shade_body(ground_scale_m, ground_offset_m, half_cm):
+    """Base colour (rgb) and foam amount (a). Ground (0..1 from the ground map) -> cm from sea level."""
+    return f"""
+// Value noise for brush-like breakup (macros: a Custom node body cannot hold helper functions).
+#define LYRIS_SEA_HASH(q) frac(sin(dot(fmod(q, 512.0), float2(127.1, 311.7))) * 43758.5453)
+#define LYRIS_SEA_NOISE(OUT, Q) {{ float2 nq = (Q); float2 ni = floor(nq); float2 nf = frac(nq); nf = nf * nf * (3.0 - 2.0 * nf); OUT = lerp(lerp(LYRIS_SEA_HASH(ni), LYRIS_SEA_HASH(ni + float2(1, 0)), nf.x), lerp(LYRIS_SEA_HASH(ni + float2(0, 1)), LYRIS_SEA_HASH(ni + float2(1, 1)), nf.x), nf.y); }}
+float nBrush, nCrest, nShore;
+LYRIS_SEA_NOISE(nBrush, p / 900.0 + t * float2(0.010, 0.006))
+LYRIS_SEA_NOISE(nCrest, p / 160.0 + t * float2(0.05, 0.03))
+LYRIS_SEA_NOISE(nShore, p / 120.0 - t * 0.04)
+#undef LYRIS_SEA_NOISE
+#undef LYRIS_SEA_HASH
+
+// Painted bands from trough to crest, with a soft brush mottling that drifts with the swell.
+float h01 = saturate(0.5 + 0.8 * off.z / max(ampSum, 1.0));
+float brush = nBrush - 0.5;
+float tone = saturate(h01 + brush * 0.16);
+tone = lerp(tone, floor(tone * 4.0 + 0.5) / 4.0, 0.3);
+float3 col = lerp(lerp(Trough, Mid, saturate(tone * 2.0)), Crest, saturate(tone * 2.0 - 1.0));
+
+// Paler toward the horizon and at grazing angles.
+float fres = pow(1.0 - saturate(dot(n, normalize(CamVec))), 4.0);
+col = lerp(col, Crest, fres * 0.45);
+
+// Shallows: water depth over the world's ground, measured at the moving surface.
+float inMap = all(abs(p) < {half_cm:.1f}) ? 1.0 : 0.0;  // beyond the world it is open sea
+float ground = lerp({SEA_DEEP:.1f}, (Ground * {ground_scale_m:.4f} + ({ground_offset_m:.4f})) * 100.0, inMap);
+float depth = SeaLevel + off.z - ground;
+col = lerp(col, Shallow, (1.0 - smoothstep(30.0, 300.0, depth)) * 0.85);
+
+// Crest foam where the surface bunches up (Jacobian of the horizontal motion), broken up like brushwork.
+float jac = jxx * jyy - jxy * jxy;
+float crest = saturate((0.9 - jac) / 0.12) * smoothstep(0.55, 0.8, h01);
+float crestFoam = saturate((crest - nCrest * 0.6) * 2.0);
+
+// Shoreline: a soft rim at the waterline plus lapping bands that roll in.
+float rim = 1.0 - smoothstep(0.0, 45.0, depth);
+float lap = smoothstep(0.62, 0.9, sin(depth * 0.05 - t * 1.4) * 0.5 + 0.5) * (1.0 - smoothstep(30.0, 170.0, depth));
+float shore = saturate(rim + lap * 0.8) * saturate(depth * 0.1 + 1.0);
+shore *= smoothstep(0.15, 0.55, nShore + rim * 0.5);
+
+float foam = saturate(max(crestFoam, shore));
+return float4(lerp(col, Foam, foam), foam);
+"""
+
+
+def _sea_rings():
+    """The clipmap lattice. Returns (points, triangles); points are (ix, iy) in SEA_UNIT steps,
+    triangles index into points and face up (+Z). Ring seams get a midpoint vertex so the finer
+    side's extra vertices are shared, never T-junctions."""
+    index, points, tris = {}, [], []
+
+    def vid(key):
+        i = index.get(key)
+        if i is None:
+            i = index[key] = len(points)
+            points.append(key)
+        return i
+
+    def tri(a, b, c):
+        # Face up: in Unreal's left-handed XY that is clockwise seen from above.
+        cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        if cross > 0:
+            b, c = c, b
+        tris.append((vid(a), vid(b), vid(c)))
+
+    core = SEA_CORE_CELLS
+    for x in range(-core, core):
+        for y in range(-core, core):
+            tri((x, y), (x + 1, y), (x + 1, y + 1))
+            tri((x, y), (x + 1, y + 1), (x, y + 1))
+
+    for ring in range(1, SEA_RINGS + 1):
+        s = 2 ** ring
+        inner, outer = core * 2 ** (ring - 1), core * 2 ** ring
+        for x in range(-outer, outer, s):
+            for y in range(-outer, outer, s):
+                if x >= -inner and x + s <= inner and y >= -inner and y + s <= inner:
+                    continue  # inside the finer ring
+                corners = [(x, y), (x + s, y), (x + s, y + s), (x, y + s)]
+                seam = None
+                for e in range(4):
+                    a, b = corners[e], corners[(e + 1) % 4]
+                    if max(abs(a[0]), abs(a[1])) == inner and max(abs(b[0]), abs(b[1])) == inner:
+                        seam = e
+                if seam is None:
+                    tri(corners[0], corners[1], corners[2])
+                    tri(corners[0], corners[2], corners[3])
+                    continue
+                a, b = corners[seam], corners[(seam + 1) % 4]
+                mid = ((a[0] + b[0]) // 2, (a[1] + b[1]) // 2)
+                c, d = corners[(seam + 2) % 4], corners[(seam + 3) % 4]
+                tri(mid, b, c)
+                tri(mid, c, d)
+                tri(mid, d, a)
+    return points, tris
+
+
+def _write_sea_glb(path):
+    """Writes the clipmap as a glTF binary (metres, Y up) without numpy."""
+    points, tris = _sea_rings()
+    pos, nrm, uv = array.array("f"), array.array("f"), array.array("f")
+    for ix, iy in points:
+        x, y = ix * SEA_UNIT, iy * SEA_UNIT
+        pos.extend((x / 100.0, 0.0, y / 100.0))  # Unreal (x, y, z) cm -> glTF (x, z, y) m
+        nrm.extend((0.0, 1.0, 0.0))
+        uv.extend((x / 1000.0, y / 1000.0))
+    idx = array.array("I")
+    for t in tris:
+        idx.extend(t)
+    half = SEA_HALF / 100.0
+    blobs = [pos.tobytes(), nrm.tobytes(), uv.tobytes(), idx.tobytes()]
+    views, offset = [], 0
+    for i, data in enumerate(blobs):
+        views.append({"buffer": 0, "byteOffset": offset, "byteLength": len(data),
+                      "target": 34963 if i == 3 else 34962})
+        offset += len(data)  # every blob is a multiple of 4 bytes
+    n = len(points)
+    doc = {"asset": {"version": "2.0", "generator": "Lyris lyris_build_world.py"},
+           "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"name": "SM_WorldSea", "mesh": 0}],
+           "meshes": [{"name": "SM_WorldSea", "primitives": [{
+               "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2}, "indices": 3, "material": 0}]}],
+           "materials": [{"name": "M_Sea", "pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 0.2}}],
+           "accessors": [
+               {"bufferView": 0, "componentType": 5126, "count": n, "type": "VEC3",
+                "min": [-half, 0.0, -half], "max": [half, 0.0, half]},
+               {"bufferView": 1, "componentType": 5126, "count": n, "type": "VEC3"},
+               {"bufferView": 2, "componentType": 5126, "count": n, "type": "VEC2"},
+               {"bufferView": 3, "componentType": 5125, "count": len(idx), "type": "SCALAR"}],
+           "bufferViews": views, "buffers": [{"byteLength": offset}]}
+    js = json.dumps(doc, separators=(",", ":")).encode()
+    js += b" " * (-len(js) % 4)
+    blob = b"".join(blobs)
+    with open(path, "wb") as f:
+        f.write(struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(blob)))
+        f.write(struct.pack("<II", len(js), 0x4E4F534A) + js)
+        f.write(struct.pack("<II", len(blob), 0x004E4942) + blob)
+    return len(points), len(tris)
+
+
+def _assets_of(folder, cls):
+    found = []
+    for asset_path in unreal.EditorAssetLibrary.list_assets(folder, recursive=True):
+        asset = unreal.load_asset(asset_path)
+        if isinstance(asset, cls):
+            found.append(asset)
+    return found
+
+
+def _sea_work_dir():
+    path = os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_saved_dir()), "Lyris", "Sea")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _sea_ground_source():
+    for key, rel, scale, offset in SEA_GROUND_SOURCES:
+        if os.path.exists(_project_path(rel)):
+            return key, rel, scale, offset
+    return None
+
+
+def _import_sea_ground(source):
+    """Imports the world ground map (shallows and shore foam) as linear, clamped data."""
+    key, rel, _scale, _offset = source
+    folder = f"{SEA_TEXTURE_DIR}/{key}"
+    name = os.path.splitext(os.path.basename(rel))[0]
+    path = f"{folder}/{name}"
+    if not unreal.EditorAssetLibrary.does_asset_exist(path):
+        _import_file(_project_path(rel), folder)
+    tex = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
+    if tex is None:
+        tex = next(iter(_assets_of(folder, unreal.Texture2D)), None)
+    if tex is None:
+        raise RuntimeError(f"sea ground map {rel} missing after import")
+    tcs = unreal.TextureCompressionSettings
+    # 16-bit heights keep their precision as half floats; the 8-bit atlas is stored uncompressed like the
+    # Harbor's ground map (both sample as linear colour, which the material expects).
+    comp = getattr(tcs, "TC_HDR", None) if key == "Baked" else getattr(tcs, "TC_VECTOR_DISPLACEMENTMAP", None)
+    _set(tex, "srgb", False)
+    if comp is not None:
+        _set(tex, "compression_settings", comp)
+    _set(tex, "address_x", unreal.TextureAddress.TA_CLAMP)
+    _set(tex, "address_y", unreal.TextureAddress.TA_CLAMP)
+    unreal.EditorAssetLibrary.save_loaded_asset(tex)
+    _log(f"sea ground map: {rel} ({key})")
+    return tex
+
+
+def _import_sea_mesh():
+    mesh_path = f"{SEA_MESH_DIR}/SM_WorldSea"
+    mesh = unreal.load_asset(mesh_path) if unreal.EditorAssetLibrary.does_asset_exist(mesh_path) else None
+    if mesh is None:
+        glb = os.path.join(_sea_work_dir(), "world_sea.glb")
+        verts, tris = _write_sea_glb(glb)
+        _log(f"sea mesh: {verts} vertices, {tris} triangles, {SEA_HALF / 100000.0:.1f} km from the camera to its edge")
+        _import_file(glb, SEA_MESH_DIR)
+        mesh = next(iter(_assets_of(SEA_MESH_DIR, unreal.StaticMesh)), None)
+    if mesh is None:
+        raise RuntimeError("sea mesh missing after import")
+    # The lattice must land on SEA_UNIT steps in the world, whatever unit scale the importer used
+    # (get_bounds includes the bounds extensions, so clear them first).
+    mesh.set_editor_property("positive_bounds_extension", unreal.Vector(0.0, 0.0, 0.0))
+    mesh.set_editor_property("negative_bounds_extension", unreal.Vector(0.0, 0.0, 0.0))
+    extent = mesh.get_bounds().box_extent
+    scale = SEA_HALF / max(extent.x, extent.y, 1.0)
+    if abs(scale - 1.0) > 0.01:
+        _warn(f"sea mesh imported at {max(extent.x, extent.y):.0f} cm half-size; scaling the actor by {scale:.4f}")
+    # The waves lift and push the flat mesh, and the material slides it under the camera anywhere in the
+    # world, so its bounds must cover far more than the flat grid or it gets culled.
+    ext = SEA_BOUNDS_EXTENSION
+    mesh.set_editor_property("positive_bounds_extension", unreal.Vector(ext, ext, 1000.0))
+    mesh.set_editor_property("negative_bounds_extension", unreal.Vector(ext, ext, 1000.0))
+    try:  # plain triangles: no Nanite (WPO each frame), no distance field for a sheet of water
+        nanite = mesh.get_editor_property("nanite_settings")
+        nanite.set_editor_property("enabled", False)
+        mesh.set_editor_property("nanite_settings", nanite)
+    except Exception as exc:
+        _warn(f"could not turn off Nanite on the sea mesh: {exc}")
+    try:
+        sme = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+        build = sme.get_lod_build_settings(mesh, 0)
+        build.set_editor_property("distance_field_resolution_scale", 0.0)
+        sme.set_lod_build_settings(mesh, 0, build)
+    except Exception as exc:
+        _warn(f"could not turn off the sea mesh distance field: {exc}")
+    unreal.EditorAssetLibrary.save_loaded_asset(mesh)
+    return mesh, scale
+
+
+def _make_sea_material():
+    """Gerstner sea from MPC_Sea: displacement, normal, painted colour and foam (see the notes above)."""
+    source = _sea_ground_source()
+    key = source[0] if source else "NoGround"
+    g = _Graph(f"LyrisSea_{key}", version=SEA_VERSION, folder=SEA_MAT_DIR)
+    if g.exists:
+        return g.mat
+    mpc = _make_sea_collection()
+    g.mat.set_editor_property("two_sided", True)  # T20 swimmers see the surface from below
+    g.mat.set_editor_property("tangent_space_normal", False)
+
+    def param(name):
+        node = g.node(unreal.MaterialExpressionCollectionParameter)
+        node.set_editor_property("collection", mpc)
+        node.set_editor_property("parameter_name", name)
+        return node
+
+    pos = g.node(unreal.MaterialExpressionWorldPosition)  # the flat lattice, before any offset
+    pos.set_editor_property("world_position_shader_offset",
+                            unreal.WorldPositionIncludedOffsets.WPT_EXCLUDE_ALL_SHADER_OFFSETS)
+    shared = {"P": pos, "Cam": g.node(unreal.MaterialExpressionCameraPositionWS),
+              "EngineTime": g.node(unreal.MaterialExpressionTime)}
+    for name in _SEA_INPUTS:
+        if name not in shared:
+            shared[name] = param(name)
+
+    def custom(desc, code, out_type, extra=None):
+        node = g.node(unreal.MaterialExpressionCustom)
+        node.set_editor_property("description", desc)
+        node.set_editor_property("output_type", out_type)
+        node.set_editor_property("code", code)
+        wired = [(n, shared[n], "") for n in _SEA_INPUTS] + list(extra or [])
+        node.set_editor_property("inputs", [unreal.CustomInput(input_name=n) for n, _, _ in wired])
+        for n, src, pin in wired:
+            g.link(src, node, pin, n)
+        return node
+
+    ct = unreal.CustomMaterialOutputType
+    offset = custom("SeaOffset", _sea_hlsl(SEA_FADE_VERTEX, _SEA_OFFSET_BODY), ct.CMOT_FLOAT3)
+    normal = custom("SeaNormal", _sea_hlsl(SEA_FADE_PIXEL, _SEA_NORMAL_BODY), ct.CMOT_FLOAT3)
+
+    world_min = WORLD_HALF_FALLBACK_CM * -1.0
+    world_size = WORLD_HALF_FALLBACK_CM * 2.0
+    if source is not None:
+        ground_tex = _import_sea_ground(source)
+        ground_uv = custom("SeaGroundUV", f"float2 snap = floor(Cam.xy / {SEA_SNAP:.1f} + 0.5) * {SEA_SNAP:.1f};\n"
+                           f"return (P.xy + snap - ({world_min:.1f})) / {world_size:.1f};", ct.CMOT_FLOAT2)
+        ground = (g.tex(ground_tex, ground_uv, linear=True), "R")
+        scale_m, offset_m = source[2], source[3]
+    else:
+        _warn("no ground map for the sea (Art/World/atlas/hmap.png missing): no shallows or shore foam")
+        ground = (g.const(0.0), "")
+        scale_m, offset_m = 0.0, SEA_DEEP / 100.0
+    colours = [(k, g.colour(PALETTE[name][0]), "") for k, name in
+               (("Trough", "SeaTrough"), ("Mid", "Sea"), ("Crest", "SeaCrest"), ("Shallow", "Shallows"),
+                ("Foam", "SeaFoam"))]
+    shade = custom("SeaShade", _sea_hlsl(SEA_FADE_PIXEL, _sea_shade_body(scale_m, offset_m, WORLD_HALF_FALLBACK_CM)),
+                   ct.CMOT_FLOAT4,
+                   [("CamVec", g.node(unreal.MaterialExpressionCameraVectorWS), ""), ("Ground", ground[0], ground[1])]
+                   + colours)
+
+    colour = g.mask(shade, "RGB")
+    foam = g.mask(shade, "A")
+    g.out(offset, unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
+    g.out(normal, unreal.MaterialProperty.MP_NORMAL)
+    g.out(colour, unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(g.mul(colour, k=0.05), unreal.MaterialProperty.MP_EMISSIVE_COLOR)  # never muddy in shadow
+    g.out(g.lerp(g.const(PALETTE["Sea"][1]), g.const(PALETTE["SeaFoam"][1]), foam),
+          unreal.MaterialProperty.MP_ROUGHNESS)
+    return g.done()
 
 
 # ----------------------------------------------------------------------------- actors
@@ -506,8 +1085,18 @@ def _step(name, fn):
         _warn(f"could not build {name}: {exc}")
 
 
+def _map_is_open():
+    try:
+        world = _editor_world()
+        return world is not None and world.get_path_name().split(".")[0] == MAP_PATH
+    except Exception:
+        return False
+
+
 def _open_or_create_map(les):
     if unreal.EditorAssetLibrary.does_asset_exist(MAP_PATH):
+        if _map_is_open():
+            return True  # the editor opened it already (EditorStartupMap); do not reload it
         return les.load_level(MAP_PATH)
     try:
         ok = les.new_level(MAP_PATH, True)  # (asset_path, is_partitioned_world)
@@ -527,7 +1116,35 @@ def _is_partitioned():
         return None
 
 
-def build(force=False):
+def _dock_spots():
+    """The T37 dock spot on Lantern Pier: {marker: ((x, y, z) UE cm, yaw)} from landmarks.json."""
+    spots = {}
+    try:
+        import lyris_build_landmarks
+        spots = lyris_build_landmarks.markers("T37_")
+    except Exception as exc:
+        _warn(f"could not read the T37 markers from landmarks.json ({exc})")
+    for name, value in DOCK_MARKERS_FALLBACK.items():
+        if name not in spots:
+            _warn(f"marker {name} missing from Art/World/landmarks.json; using the T36 spot")
+            spots[name] = value
+    return spots
+
+
+def _add_tags(actor, *names):
+    try:
+        tags = list(actor.get_editor_property("tags"))
+    except Exception:
+        tags = []
+    for n in names:
+        if unreal.Name(n) not in tags:
+            tags.append(unreal.Name(n))
+    _set(actor, "tags", tags)
+
+
+def build(force=False, startup=False):
+    """Builds the map if BUILD_VERSION is newer than the map's (or force), otherwise finishes an imported
+    landscape. startup=True (init_unreal.py) only reports when the map is already up to date."""
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     manifest = load_manifest()
@@ -544,28 +1161,33 @@ def build(force=False):
     if _is_partitioned() is False:
         _warn(f"{MAP_PATH} is not a World Partition map; streaming settings will not apply")
 
-    _load_our_unloaded_actors()
-    version = _current_version(eas)
+    version = _current_version(eas)  # the version marker is always loaded
     landscape = _landscape(eas)
     if version >= BUILD_VERSION and not force:
         if landscape is None:
             _log(f"World map v{version} is built; the landscape is not imported yet")
             import_steps(manifest)
+        elif startup:
+            _log(f"World map is up to date (v{version})")
         else:
             _finish_landscape(landscape, eas, manifest)
             les.save_current_level()
             _log(f"World map is up to date (v{version})")
         return
     _log(f"building World map (v{version} -> v{BUILD_VERSION})")
+    _load_our_unloaded_actors()  # World Partition: load everything we made, so the rebuild replaces it all
     eas.destroy_actors([a for a in eas.get_all_level_actors() if _ours(a)])
 
     b = _Builder()
     m = manifest
     half = m["world_bounds_ue"][1]
 
+    dock = _dock_spots()
+
     def materials():
         _material_terrain()
         _layer_infos()
+        _prototype_materials()
 
     def sky():
         sun = b.spawn(unreal.DirectionalLight, "Sun", (0, 0, 100000), rot=(0, -14, 215))  # golden hour
@@ -610,14 +1232,25 @@ def build(force=False):
                   f"({2 * half:.0f} x {2 * half:.0f})")
         _set(zone, "render_target_resolution", unreal.IntPoint(4096, 4096), quiet=True)
 
-    def ocean():
-        actor = b.spawn(unreal.WaterBodyOcean, "Ocean", (0, 0, 0), folder="Water")
-        e = half * 1.02
-        _set_spline(actor, [(-e, -e, 0), (e, -e, 0), (e, e, 0), (-e, e, 0)], closed=True)
-        _water_body_common(actor)
-        for prop in ("ocean_extents", "collision_extents"):
-            _set_water(actor, prop, unreal.Vector2D(2 * half * 1.2, 2 * half * 1.2))
-        _set_water(actor, "height_offset", 15000.0)  # water column below the surface (150 m)
+    def sea():
+        # The one sea (T17/T19): a Gerstner clipmap that follows the camera, drawn from MPC_Sea, which the
+        # ocean subsystem writes. Boats, swimmers and the hull read the same waves in C++; there is no
+        # Water plugin ocean (lakes and rivers still use the Water plugin).
+        _make_sea_collection()
+        mesh, scale = _import_sea_mesh()
+        actor = b.eas.spawn_actor_from_object(mesh, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0))
+        actor.set_actor_scale3d(unreal.Vector(scale, scale, 1.0))
+        actor.set_actor_label(LABEL_PREFIX + "Sea")
+        actor.set_folder_path("Water")
+        _set(actor, "tags", [unreal.Name(TAG)])
+        _set(actor, "is_spatially_loaded", False, quiet=True)  # it follows the camera everywhere
+        comp = actor.get_component_by_class(unreal.StaticMeshComponent)
+        comp.set_material(0, _make_sea_material())
+        comp.set_collision_profile_name("NoCollision")
+        comp.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
+        # The mesh is re-centred on each camera (shadow views included), so it must not cast shadows.
+        comp.set_editor_property("cast_shadow", False)
+        _set(comp, "affect_distance_field_lighting", False, quiet=True)
 
     def lakes():
         made = 0
@@ -644,7 +1277,7 @@ def build(force=False):
             _set_spline(actor, [tuple(p) for p in pts], closed=False)
             _water_body_common(actor)
             made += 1
-        _log(f"{made} upland river reaches (sea-level rivers are covered by the ocean). River width "
+        _log(f"{made} upland river reaches (sea-level rivers are covered by the sea). River width "
              "uses the Water plugin default; per-point width needs the spline metadata (T36 follow-up)")
 
     def bounds():
@@ -666,9 +1299,46 @@ def build(force=False):
             wall.set_actor_hidden_in_game(True)
 
     def player_start():
-        x, y, z = m["spawn"]["ue"]
-        b.spawn(unreal.PlayerStart, "PlayerStart_Moonharbor", (x, y, z), rot=(0, 0, m["spawn"].get("yaw", -90.0)),
+        # T37: on Lantern Pier's deck, a few steps shoreward of the moored boat and facing it (the Harbor map
+        # started the player on its dock the same way). The server's spawn in Market Square is in the manifest.
+        (x, y, z), _yaw = dock["T37_StepAshore"]
+        dx, dy = PLAYER_START_FROM_STEP
+        b.spawn(unreal.PlayerStart, "PlayerStart_LanternPier", (x + dx, y + dy, z + STAND_Z), rot=(0, 0, -90.0),
                 folder="Gameplay")
+
+    def boat_and_dock():
+        # The boat, the step-ashore point, the mooring and the dock lamp, at the T37 markers on Lantern Pier.
+        (sx, sy, sz), _ = dock["T37_StepAshore"]
+        step = (sx, sy, sz + STAND_Z)
+        point = b.spawn(unreal.TargetPoint, "DockPoint", step, folder="Gameplay/Dock")
+        _add_tags(point, TAG_DOCK_POINT, TAG_TIDE_HOME)
+
+        boat_cls = getattr(unreal, "LyrisBoat", None)
+        if boat_cls is None:
+            _warn("LyrisBoat class not found; build the C++ module and reopen the editor, then build(force=True)")
+        else:
+            (bx, by, bz), byaw = dock["T37_BoatStart"]
+            boat = b.spawn(boat_cls, "Boat", (bx, by, bz + BOAT_FLOAT_Z), rot=(0, 0, byaw), folder="Gameplay/Boat")
+            _add_tags(boat, TAG_BOAT)
+            if not _set(boat, "dock_point", unreal.Vector(*step)):
+                _warn("Boat: set Dock Point by hand to the LW_DockPoint TargetPoint's location")
+            # ALyrisBoat turns back at WorldRadius from the world origin (the Harbor island). Moonharbor is
+            # 2.4 km from the origin, so widen it past the world edges until Sailing reads the world bounds.
+            if not _set(boat, "world_radius", BOAT_WORLD_RADIUS):
+                _warn(f"Boat: set World Radius by hand to {BOAT_WORLD_RADIUS:.0f}")
+
+        mooring_cls = getattr(unreal, "LyrisHarborMooring", None)
+        if mooring_cls is None:
+            _warn("LyrisHarborMooring class not found (T21 not compiled yet); swamped boats return to their start")
+        else:
+            (mx, my, mz), myaw = dock["T37_Mooring"]
+            mooring = b.spawn(mooring_cls, "Mooring_Moonharbor", (mx, my, mz), rot=(0, 0, myaw), folder="Gameplay/Dock")
+            _add_tags(mooring, TAG_MOORING)
+            text_cls = getattr(unreal, "Text", None)
+            if text_cls is not None:
+                _set(mooring, "harbor_name", text_cls("Moonharbor"))
+
+        _dock_lamp(b, eas, dock["T37_DockLamp"])
 
     def streaming():
         _streaming_settings()
@@ -681,9 +1351,10 @@ def build(force=False):
         importlib.reload(lyris_build_landmarks)
         lyris_build_landmarks.build_landmarks(m)
 
-    for name, fn in [("materials", materials), ("sky and lighting", sky), ("water zone", water_zone),
-                     ("ocean", ocean), ("lakes", lakes), ("rivers", rivers), ("world bounds", bounds),
-                     ("player start", player_start), ("landmarks", landmarks), ("streaming settings", streaming)]:
+    for name, fn in [("materials", materials), ("sky and lighting", sky), ("sea", sea), ("water zone", water_zone),
+                     ("lakes", lakes), ("rivers", rivers), ("world bounds", bounds), ("landmarks", landmarks),
+                     ("player start", player_start), ("boat and dock", boat_and_dock),
+                     ("streaming settings", streaming)]:
         _step(name, fn)
 
     marker = b.spawn(unreal.Note, "Marker", (0, 0, 50000), folder="Gameplay")
@@ -698,6 +1369,48 @@ def build(force=False):
     _log(f"World map v{BUILD_VERSION} ready at {MAP_PATH}")
     if landscape is None:
         import_steps(manifest)
+
+
+def _dock_lamp(b, eas, spot):
+    """The dock lamp: the T36 blockout at T37_DockLamp, tagged and lit like the Harbor's dock lamp. If the
+    landmarks did not place it, builds the Harbor's lamp there instead."""
+    parts = [a for a in eas.get_all_level_actors() if "T37_DockLamp" in a.get_actor_label()]
+    if parts:
+        for actor in parts:
+            _add_tags(actor, TAG_DOCK_LAMP)
+            light = actor.get_component_by_class(unreal.PointLightComponent)
+            if light:
+                light.set_editor_property("light_color", _srgb_color(MOONGLASS))
+                light.set_editor_property("intensity", DOCK_LAMP_LIGHT[0])
+                light.set_editor_property("attenuation_radius", DOCK_LAMP_LIGHT[1])
+        _log(f"dock lamp: {len(parts)} parts on Lantern Pier tagged {TAG_DOCK_LAMP}")
+        return
+    (x, y, z), _ = spot
+    mats = _prototype_materials()
+    mats["Clay"] = _plain_material("Clay", *PALETTE["Clay"])
+    shapes = (("Post", "Cylinder", (x, y, z + 160), (0.14, 0.14, 3.2), "DarkWood"),
+              ("Arm", "Cube", (x, y - 30, z + 320), (0.08, 0.7, 0.08), "DarkWood"),
+              ("Glass", "Cube", (x, y - 60, z + 280), (0.28, 0.28, 0.45), "LampGlass"),
+              ("Roof", "Cone", (x, y - 60, z + 320), (0.4, 0.4, 0.3), "Clay"))
+    for name, mesh, loc, scale, mat in shapes:
+        actor = b.eas.spawn_actor_from_object(unreal.load_asset(f"/Engine/BasicShapes/{mesh}"), unreal.Vector(*loc),
+                                              unreal.Rotator(0, 0, 0))
+        actor.set_actor_scale3d(unreal.Vector(*scale))
+        actor.set_actor_label(f"{LABEL_PREFIX}DockLamp_{name}")
+        actor.set_folder_path("Gameplay/Dock/Lamp")
+        _set(actor, "tags", [unreal.Name(TAG), unreal.Name(TAG_DOCK_LAMP)])
+        _set(actor, "is_spatially_loaded", False, quiet=True)
+        comp = actor.get_component_by_class(unreal.StaticMeshComponent)
+        comp.set_material(0, mats[mat])
+        if name != "Post":
+            comp.set_collision_profile_name("NoCollision")
+    light = b.spawn(unreal.PointLight, "DockLamp_Light", (x, y - 60, z + 280), folder="Gameplay/Dock/Lamp")
+    _add_tags(light, TAG_DOCK_LAMP)
+    lc = light.get_component_by_class(unreal.PointLightComponent)
+    lc.set_editor_property("light_color", _srgb_color(MOONGLASS))
+    lc.set_editor_property("intensity", DOCK_LAMP_LIGHT[0])
+    lc.set_editor_property("attenuation_radius", DOCK_LAMP_LIGHT[1])
+    _warn("dock lamp: no T37_DockLamp blockout in landmarks.json; built the Harbor lamp at the marker instead")
 
 
 def _finish_landscape(landscape, eas, manifest):

@@ -11,7 +11,7 @@ file, the lead edits it.
 | **Sailing** | `Source/Lyris/LyrisBoat.*`, `Source/Lyris/Sailing/` *(new)*, `Content/Lyris/Sailing/` *(new)* | Boat, wind, sails, charts, storms, crews |
 | **World** | `Source/Lyris/World/` *(new)*, `Content/Lyris/World/` *(new)* | Real-time clock, day/night, seasons, weather, the nightly mist, lamps that hold it back |
 | **Player** | `Source/Lyris/LyrisCharacter.*`, `Source/Lyris/LyrisPlayerController.*`, `Source/Lyris/Player/` *(new)*, `Content/Input/`, `Config/DefaultInput.ini` *(shared with Lead: Player proposes, Lead merges)* | Walking, boarding, camera, input actions |
-| **Environment** | `Art/`, `Content/Python/` (Harbor build script and `init_unreal.py`), `Content/Lyris/Maps/` *(generated)*, `Content/Lyris/Materials/` *(generated)* | Islands, terrain, foliage, materials, palette, placing actors in maps |
+| **Environment** | `Art/`, `Content/Python/` (the Lyris world build scripts; `init_unreal.py` shared with Lead), `Content/Lyris/Maps/` *(generated)*, `Content/Lyris/Materials/` *(generated)* | Islands, terrain, foliage, materials, palette, placing actors in maps |
 | **Harvest** | `Source/Lyris/Interaction/` *(new)*, `Source/Lyris/Items/` *(new)*, `Source/Lyris/Harvest/` *(new)*, `Content/Lyris/Items/` *(new)*, `Content/Lyris/Harvest/` *(new)* | Interacting with things in the world, items and inventory, mining, harvesting and foraging nodes, farming plots |
 | **UI** | `Source/Lyris/UI/` *(new)*, `Content/Lyris/UI/` *(new)* | HUD, menus, collection book, journal |
 
@@ -24,7 +24,7 @@ Opened when their first task is scheduled: **Cultivation** (combining strange pl
 ## Hand-offs between lanes
 
 The common one: a lane makes a new actor class (say World's mist volume) that has to appear
-in the Harbor map. World builds the class; Environment adds it to the build script and
+in the Lyris world. World builds the class; Environment adds it to the build script and
 bumps `BUILD_VERSION`. World writes that request in its PR and adds a task for Environment.
 
 ## Leftovers

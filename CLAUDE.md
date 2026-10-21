@@ -25,19 +25,24 @@ with the ID `?` and the lead numbers it when merging.
 ## While you work
 
 - **Stay in your lane.** If your task needs a change in a path another lane owns (a new
-  actor placed in the Harbor map, a new input action, a line in `Lyris.Build.cs`), do not
+  actor placed in the Lyris world, a new input action, a line in `Lyris.Build.cs`), do not
   make it. Write it in your PR under "Needs from other lanes" and add a task to the board.
 - **One task, one branch.** Name it `lane/<lane>-<task-id>-<short-name>`, e.g.
   `lane/world-T1-day-night`. Never commit to `main`.
 - **Binary assets are never shared.** `.uasset` and `.umap` files cannot be merged. Only
   the owning lane edits them, and if file locking is ever turned on, locked files are off limits.
-- **The Harbor map is generated.** `/Game/Lyris/Maps/Harbor` is rebuilt by
-  `Content/Python/lyris_build_harbor.py` whenever `BUILD_VERSION` changes. Hand edits to
-  the map are lost. Only the Environment lane edits that script.
+- **The Lyris world is generated.** `/Game/Lyris/Maps/Lyris` (the only map) is built by
+  `Content/Python/lyris_build_world.py` and `lyris_build_landmarks.py` from `Art/World/`, and
+  rebuilt whenever `BUILD_VERSION` in `lyris_build_world.py` changes. Hand edits to the
+  actors it places are lost; the imported landscape is kept. Only the Environment lane edits
+  those scripts, except the Lead for startup glue (`init_unreal.py`, the map in `Config/`).
+- **Find placed actors by tag, not position.** The boat, dock point, tide home, mooring and
+  dock lamp carry tags (`LyrisPlayerBoat`, `LyrisDockPoint`, `LyrisTideHome`,
+  `LyrisHarborMooring`, `LyrisDockLamp`); see the notes at the top of `lyris_build_world.py`.
 - **New C++ goes in your lane's folder** under `Source/Lyris/<Lane>/`, with class names
   prefixed `Lyris` (e.g. `ALyrisMistVolume`).
-- **Storybook painterly palette.** Colors come from the `PALETTE` in the Harbor build
-  script. Do not invent new hex values for world art; ask the Environment lane.
+- **Storybook painterly palette.** Colors come from `PALETTE` and `ISLAND_PALETTE` in
+  `lyris_build_world.py`. Do not invent new hex values for world art; ask the Environment lane.
 
 ## When you finish
 
