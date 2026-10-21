@@ -45,7 +45,7 @@ ULyrisAppearanceComponent::ULyrisAppearanceComponent()
 
 ULyrisAppearanceCatalog* ULyrisAppearanceComponent::GetCatalog() const
 {
-	return Catalog ? Catalog.Get() : ULyrisAppearanceCatalog::GetDefault();
+	return Catalog ? Catalog.Get() : ULyrisAppearanceCatalog::GetDefaultCatalog();
 }
 
 void ULyrisAppearanceComponent::SetAppearance(const FLyrisAppearance& NewAppearance)
@@ -246,13 +246,19 @@ void ULyrisAppearanceComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 
 	// Safety net for the native post-process route (not verified in an editor build): if the instance reports
 	// that it never received the main instance's pose, remove it so the character keeps animating, and say how
-	// to enable the AnimBP fallback. Checked for a few frames only.
+	// to enable the AnimBP fallback. The counters are read through GetProxyOnGameThread, which waits for the
+	// parallel anim task, so this runs only during a short window (MaxPostProcessChecks ticks with an instance)
+	// and then stops for good.
 	if (bDriveBones && !bPostProcessVerified)
 	{
 		if (USkeletalMeshComponent* Body = ResolveMesh())
 		{
 			if (ULyrisAppearanceAnimInstance* Instance = Cast<ULyrisAppearanceAnimInstance>(Body->GetPostProcessInstance()))
 			{
+				if (++PostProcessChecks >= MaxPostProcessChecks)
+				{
+					bPostProcessVerified = true; // window over: stop paying for the wait
+				}
 				// Give up only after many evaluations without a single good one (the first frames, or a LOD
 				// switch, may legitimately miss once).
 				if (Instance->GetEvaluationCount() == 0 && Instance->GetMissedEvaluationCount() >= 30)

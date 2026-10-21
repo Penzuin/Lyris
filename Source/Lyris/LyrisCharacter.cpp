@@ -70,16 +70,30 @@ ALyrisCharacter::ALyrisCharacter(const FObjectInitializer& ObjectInitializer)
 void ALyrisCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	TryApplySavedAppearance();
+}
 
-	// Only the player sitting at this machine loads their saved look. The component then replicates it to
-	// the server and other players. (A client may get its controller after BeginPlay; T26 also applies the
-	// look when the creator finishes, so this only covers "play again with my saved character".)
-	if (AppearanceComponent && IsLocallyControlled())
+void ALyrisCharacter::NotifyControllerChanged()
+{
+	Super::NotifyControllerChanged();
+	// Respawned or late-possessed pawns get their controller after BeginPlay (server: PossessedBy; owning
+	// client: OnRep_Controller); both end up here, so the saved look is applied then.
+	TryApplySavedAppearance();
+}
+
+void ALyrisCharacter::TryApplySavedAppearance()
+{
+	// Only the player sitting at this machine loads their saved look, and only once per pawn. The component
+	// then replicates it to the server and other players. T26 also applies the look when the creator
+	// finishes; this covers "play again with my saved character".
+	if (bSavedAppearanceApplied || !AppearanceComponent || !HasActorBegunPlay() || !IsLocallyControlled())
 	{
-		if (const ULyrisCharacterSaveGame* Save = ULyrisCharacterSaveGame::LoadCharacter())
-		{
-			AppearanceComponent->SetAppearance(Save->Profile.Appearance);
-		}
+		return;
+	}
+	bSavedAppearanceApplied = true;
+	if (const ULyrisCharacterSaveGame* Save = ULyrisCharacterSaveGame::LoadCharacter())
+	{
+		AppearanceComponent->SetAppearance(Save->Profile.Appearance);
 	}
 }
 

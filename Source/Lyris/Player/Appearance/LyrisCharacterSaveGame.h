@@ -38,4 +38,8 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Lyris|Appearance")
 	static bool HasSavedCharacter();
+
+	/** SlotName as an FString, for Blueprints and UGameplayStatics calls. */
+	UFUNCTION(BlueprintPure, Category = "Lyris|Appearance")
+	static FString GetSlotName() { return FString(SlotName); }
 };

@@ -85,9 +85,10 @@ void FLyrisAppearanceAnimInstanceProxy::EvaluateAppearance(FPoseContext& Output,
 	const FCompactHeapPose& Input = InputPoseNode.CachedInputPose;
 	if (Input.IsValid() && Input.GetNumBones() == Output.Pose.GetNumBones())
 	{
-		// Native path: the engine filled our own input node.
-		Output.Pose.CopyBonesFrom(Input);
-		Output.Curve.CopyFrom(InputPoseNode.CachedInputCurve);
+		// Native path: the engine filled our own input node. Let the node copy its cache itself (pose, curves
+		// and custom attributes) so this keeps up with the engine's curve API (FBlendedCurve changed in 5.3)
+		// instead of copying FBlendedHeapCurve by hand.
+		InputPoseNode.Evaluate_AnyThread(Output);
 	}
 	else if (GraphRoot)
 	{

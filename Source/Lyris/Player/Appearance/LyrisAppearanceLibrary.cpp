@@ -38,7 +38,7 @@ namespace
 
 	const ULyrisAppearanceCatalog* CatalogOrDefault(const ULyrisAppearanceCatalog* Catalog)
 	{
-		return Catalog ? Catalog : ULyrisAppearanceCatalog::GetDefault();
+		return Catalog ? Catalog : ULyrisAppearanceCatalog::GetDefaultCatalog();
 	}
 
 	bool IsSkinChannel(FName Id)

@@ -88,6 +88,15 @@ protected:
 	/** Loads the saved character look (slot LyrisCharacter_0) for the locally controlled player */
 	virtual void BeginPlay() override;
 
+	/** Also loads the saved look when the pawn is possessed after BeginPlay (respawn, late possession) */
+	virtual void NotifyControllerChanged() override;
+
+	/** Applies the saved look once, if this pawn is locally controlled and has begun play */
+	void TryApplySavedAppearance();
+
+	/** Set once the saved look has been applied to this pawn */
+	bool bSavedAppearanceApplied = false;
+
 	/** Initialize input action bindings */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 

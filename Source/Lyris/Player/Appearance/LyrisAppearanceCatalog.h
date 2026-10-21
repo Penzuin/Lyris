@@ -2,8 +2,8 @@
 //
 // The catalog lists every option the character creator offers. Content (ids, ranges, swatches) comes
 // from design/character_creator.md (Design lane, T22). Cloud agents cannot author .uasset data assets,
-// so GetDefault() builds the whole default catalog in code (LyrisAppearanceCatalog.cpp). A designer can
-// later make a data asset of this class and point the config at it (see GetDefault()).
+// so GetDefaultCatalog() builds the whole default catalog in code (LyrisAppearanceCatalog.cpp). A designer can
+// later make a data asset of this class and point the config at it (see GetDefaultCatalog()).
 
 #pragma once
 
@@ -157,7 +157,14 @@ public:
 	 * the full catalog is built in code once and kept alive for the rest of the session. Game thread only.
 	 */
 	UFUNCTION(BlueprintPure, Category = "Appearance", meta = (DisplayName = "Get Default Appearance Catalog"))
-	static ULyrisAppearanceCatalog* GetDefault();
+	static ULyrisAppearanceCatalog* GetDefaultCatalog();
+
+	/**
+	 * Old name from the creator contract. It hides UObject's GetDefault<T>() inside this class, so it is
+	 * deprecated: call GetDefaultCatalog(). Kept (not a UFUNCTION) so existing callers still compile.
+	 */
+	UE_DEPRECATED(5.8, "Use ULyrisAppearanceCatalog::GetDefaultCatalog() instead.")
+	static ULyrisAppearanceCatalog* GetDefault() { return GetDefaultCatalog(); }
 
 	// ---- Extra lookups ----
 

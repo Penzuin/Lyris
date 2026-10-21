@@ -211,7 +211,7 @@ FName ULyrisAppearanceCatalog::GetScleraChannelFor(FName People)
 	return People == LyrisPeople::Deepkin ? Deep : Normal;
 }
 
-ULyrisAppearanceCatalog* ULyrisAppearanceCatalog::GetDefault()
+ULyrisAppearanceCatalog* ULyrisAppearanceCatalog::GetDefaultCatalog()
 {
 	// Kept alive with AddToRoot for the whole session; built on first use.
 	static ULyrisAppearanceCatalog* Cached = nullptr;
@@ -760,7 +760,6 @@ void ULyrisAppearanceCatalog::BuildBody()
 		// scale would push the feet through the ground).
 		FLyrisSliderDef& D = AddSlider(A, Cat, Frame, TEXT("Body.Height"), TEXT("Height"));
 		Bone(D, EKind::BoneScale, TEXT("root"), Uniform, 0.08f);
-		Morph(D, TEXT("Body_Height"));
 	}
 	{
 		FLyrisSliderDef& D = AddSlider(A, Cat, Frame, TEXT("Body.TorsoLength"), TEXT("Torso length"));

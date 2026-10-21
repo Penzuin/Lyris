@@ -33,6 +33,7 @@
 class ULyrisAppearanceCatalog;
 class USkeletalMeshComponent;
 class USceneComponent;
+class UMeshComponent;
 class UMaterialInstanceDynamic;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLyrisAppearanceChanged, const FLyrisAppearance&, Appearance);
@@ -81,7 +82,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Lyris|Appearance")
 	FOnLyrisAppearanceChanged OnAppearanceChanged;
 
-	/** Catalog to use. Null = ULyrisAppearanceCatalog::GetDefault(). */
+	/** Catalog to use. Null = ULyrisAppearanceCatalog::GetDefaultCatalog(). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lyris|Appearance")
 	TObjectPtr<ULyrisAppearanceCatalog> Catalog;
 
@@ -168,8 +169,10 @@ private:
 	bool bBonesPending = false;
 	bool TryPushBoneMods(USkeletalMeshComponent* Body);
 
-	/** Safety net for the post-process route; see TickComponent. */
+	/** Safety net for the post-process route; see TickComponent. Stops after MaxPostProcessChecks ticks. */
 	bool bPostProcessVerified = false;
+	int32 PostProcessChecks = 0;
+	static constexpr int32 MaxPostProcessChecks = 120;
 
 	/** Spawned part components per slot, and the part id each one shows. Transient, never saved. */
 	UPROPERTY(Transient)
