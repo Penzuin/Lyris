@@ -18,7 +18,7 @@ import os
 
 import unreal
 
-BUILD_VERSION = 9
+BUILD_VERSION = 10
 MAP_PATH = "/Game/Lyris/Maps/Harbor"
 MAT_DIR = "/Game/Lyris/Materials/Prototype"
 MARKER_PREFIX = "LyrisBuild_v"
@@ -46,11 +46,11 @@ ISLAND_DIR = "Art/TestIsland"
 ISLAND_GLB = "test_island.glb"
 GRASS_GLB = "test_island_grass.glb"
 FOLIAGE_GLB = "test_island_foliage.glb"
-FOLIAGE_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandFoliage_v9"
-GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass_v9"
-TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island_v9"
+FOLIAGE_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandFoliage_v10"
+GRASS_ASSET_DIR = "/Game/Lyris/Meshes/TestIslandGrass_v10"
+TEXTURE_ASSET_DIR = "/Game/Lyris/Textures/Island_v10"
 ISLAND_META = "island_meta.json"
-ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland_v9"
+ISLAND_ASSET_DIR = "/Game/Lyris/Meshes/TestIsland_v10"
 
 DOCK_X0, DOCK_X1, DOCK_Y, DOCK_TOP = 1150.0, 2850.0, 150.0, 72.0
 BOAT_START = (2450.0, -230.0)
@@ -142,8 +142,8 @@ def _make_sea_material():
 #            rock wherever the ground is steep, textures wrapped from three sides on cliffs
 #            (triplanar) so nothing stretches, and a soft warm-to-cool tone across the island.
 #   rock     triplanar stone with grass only on its flat tops.
-#   leaves   trees are branches carrying separate leaf clumps; each clump is lit on its own top
-#            (UV2.y) with dark creases between, over a crown-wide gradient (dark low, sunlit
+#   leaves   trees are branches carrying a few big overlapping leaf masses, lit as one crown, with soft
+#            dips between masses (UV2.y), over a crown-wide gradient (dark low, sunlit
 #            high), a painted leaf-clump tile wrapped from three sides, and a little self-light.
 #   grass    darker root to light tip along the blade, tinted by the large-scale ground colour,
 #            swaying in a slow travelling wind; wildflowers are masked cards that sway gently.
@@ -377,8 +377,9 @@ def _material_bark(tex, name="IslandBark", tint=None, texture="bark"):
 
 
 def _clump_shade(g):
-    """Each leaf clump lit on its own top with darker creases between clumps (UV2.y)."""
-    return g.add(g.mul(g.mask(g.uv(2), "G"), k=0.5), k=0.62)
+    """Gentle clump shading (UV2.y): soft dips between the big masses, so the whole crown still
+    reads as one form lit by the canopy-wide normals, instead of every clump being its own ball."""
+    return g.add(g.mul(g.mask(g.uv(2), "G"), k=0.38), k=0.72)
 
 
 def _material_shell(species, texture, luma_mean):
@@ -395,7 +396,7 @@ def _material_shell(species, texture, luma_mean):
     vary = g.add(g.mul(g.mask(g.uv(2), "R"), k=0.12), k=0.94)
     base = g.mul(g.mul(g.mul(g.mul(colour, detail), depth), vary), _clump_shade(g))
     g.out(base, unreal.MaterialProperty.MP_BASE_COLOR)
-    rim = g.mul(g.mul(g.fresnel(3.0), g.colour(sun_hex)), k=0.22)
+    rim = g.mul(g.mul(g.fresnel(3.0), g.colour(sun_hex)), k=0.12)
     g.out(g.add(g.mul(base, k=0.18), rim), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     g.out(g.const(0.85), unreal.MaterialProperty.MP_ROUGHNESS)
     g.out(g.wind(g.mul(g.mask(g.uv(1), "G"), k=0.6), 0.45), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
@@ -418,8 +419,9 @@ def _material_cards(species, atlas, luma_mean):
     base = g.mul(g.mul(g.mul(colour, g.detail(sample, luma_mean, 0.35)), vary), _clump_shade(g))
     g.out(base, unreal.MaterialProperty.MP_BASE_COLOR)
     g.out(sample, unreal.MaterialProperty.MP_OPACITY_MASK, "A")
-    g.out(g.mul(g.colour(sun_hex), k=0.25), unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
-    rim = g.mul(g.mul(g.fresnel(3.0), g.colour(sun_hex)), k=0.22)
+    # Low backlight and rim: strong values made the cards glow white against the sky.
+    g.out(g.mul(g.colour(shadow_hex), k=0.12), unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
+    rim = g.mul(g.mul(g.fresnel(3.0), g.colour(sun_hex)), k=0.08)
     g.out(g.add(g.mul(base, k=0.18), rim), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     g.out(g.const(0.85), unreal.MaterialProperty.MP_ROUGHNESS)
     g.out(g.wind(g.mul(g.mask(g.uv(1), "G"), k=0.6), 0.45), unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)

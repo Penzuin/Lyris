@@ -104,6 +104,7 @@ class Canopy:
         self.puffs = []       # (centre, radii)
         self.zrange = None    # (bottom, top) of the whole crown, so lower clumps sit in shade
         self.depth = 0.8      # UV1.x of the outer shell; lower for clumps deep inside a crown
+        self.crown = None     # (centre, radii) of the whole tree's crown: lit as ONE soft form
 
     @property
     def size(self):
@@ -117,7 +118,10 @@ class Canopy:
         return self.centre + p * (1.0 + lump)
 
     def normal(self, p):
-        d = (p - self.centre) / self.radii
+        """The soft, canopy-wide normal: from the whole crown when there is one, so every clump
+        of a tree shares one smooth light gradient instead of being lit like its own ball."""
+        centre, radii = self.crown if self.crown is not None else (self.centre, self.radii)
+        d = (p - centre) / radii
         n = d / (np.linalg.norm(d) or 1.0)
         return 0.8 * n + 0.2 * np.array([0, 0, 1.0])
 
@@ -166,17 +170,19 @@ class Canopy:
             big = self.normal(p)
             big /= np.linalg.norm(big)
             if best[i] == 0:
-                own, lit_scale = big, 0.8  # bare core between clumps: a little shaded
+                own, lit_scale = big, 0.9  # bare core between clumps: a little shaded
             else:
                 c, r = self.puffs[best[i] - 1]
                 own = (p - c) / (r * r)
                 own /= np.linalg.norm(own) or 1.0
                 lit_scale = 1.0
-            n = 0.5 * big + 0.5 * own
+            # Mostly the crown's normal, with just enough of the clump's own to keep it lumpy.
+            k = 0.8 if self.crown is not None else 0.5
+            n = k * big + (1 - k) * own
             n /= np.linalg.norm(n)
-            lit = 0.5 + 0.5 * float(own @ SUN)
+            lit = 0.5 + 0.5 * float(n @ SUN)
             nrm.append(n)
-            shade.append(np.clip((0.3 + 0.7 * lit) * lit_scale * (1 - 0.55 * crease[i]), 0, 1))
+            shade.append(np.clip((0.45 + 0.55 * lit) * lit_scale * (1 - 0.3 * crease[i]), 0, 1))
         return pts, np.array(nrm), np.array(shade)
 
 
@@ -219,9 +225,11 @@ def canopy_cards(mesh, material, canopy, rng, count, size, cell, droop=0.0):
     weights /= weights.sum()
     up = np.array([0, 0, 1.0])
     dirs = []
+    crown_c = canopy.crown[0] if canopy.crown is not None else canopy.centre
     for _ in range(count):
         c, r = canopy.puffs[rng.choice(len(canopy.puffs), p=weights)]
-        out = c - canopy.centre
+        out = 0.5 * (c - canopy.centre) / (np.linalg.norm(c - canopy.centre) or 1.0) \
+            + (c - crown_c) / (np.linalg.norm(c - crown_c) or 1.0)
         out /= np.linalg.norm(out) or 1.0
         d = rng.normal(size=3) + 1.3 * out + 0.4 * up  # the outward, upper side of a clump
         d /= np.linalg.norm(d)
@@ -229,7 +237,7 @@ def canopy_cards(mesh, material, canopy, rng, count, size, cell, droop=0.0):
         dirs.append(q / (np.linalg.norm(q) or 1.0))
     pts, nrms, shade = canopy.evaluate(np.array(dirs))
     for p, n, sh in zip(pts, nrms, shade):
-        p = canopy.centre + (p - canopy.centre) * rng.uniform(1.0, 1.05)
+        p = canopy.centre + (p - canopy.centre) * rng.uniform(0.97, 1.01)  # sit on the surface
         s = size * rng.uniform(0.75, 1.25)
         # Card plane: tangent to the surface, randomly spun, optionally drooping (pine tufts).
         t = np.cross(n, up)
@@ -239,7 +247,7 @@ def canopy_cards(mesh, material, canopy, rng, count, size, cell, droop=0.0):
         b = np.cross(n, t)
         spin = rng.uniform(0, 2 * math.pi)
         t, b = t * math.cos(spin) + b * math.sin(spin), -t * math.sin(spin) + b * math.cos(spin)
-        tilt = n * 0.75 + np.array([0, 0, -droop])  # lean cards well out, so they read as a fringe
+        tilt = n * 0.42 + np.array([0, 0, -droop])  # lean only a little: a soft fringe, not spikes
         corners = [p + (-t - b) * s / 2 - tilt * s * 0.2, p + (t - b) * s / 2 - tilt * s * 0.2,
                    p + (t + b) * s / 2 + tilt * s * 0.2, p + (-t + b) * s / 2 + tilt * s * 0.2]
         uvs = [(u0, v0 + 0.5), (u0 + 0.5, v0 + 0.5), (u0 + 0.5, v0), (u0, v0)]
@@ -406,11 +414,16 @@ def _kmeans(points, k, rng, iters=12):
 
 
 def leaf_clumps(leaves, species, nodes, parent, rng, count, size, flat=0.8, puffs=5, cards=1.0,
-                card_size=80.0, droop=0.0):
-    """Clouds of leaves at the ends of the branches: the branch tips are grouped into `count`
-    clumps, each a small cluster of puffs, so the crown has a broken silhouette with gaps."""
+                card_size=80.0, droop=0.0, min_z=None):
+    """Clouds of leaves at the ends of the branches: the branch tips are grouped into a FEW big
+    overlapping masses (Genshin-style: 4-7 per tree), each a cluster of smaller puffs, so the
+    crown reads as one soft canopy with a lumpy outline rather than a bunch of separate balls.
+    Tips below `min_z` (twigs along the trunk) are left bare."""
     kids = _children(parent)
     tips = np.array([nodes[i] for i in range(len(nodes)) if not kids[i]])
+    if min_z is not None and len(tips):
+        high = tips[tips[:, 2] >= min_z]
+        tips = high if len(high) >= count else tips
     if len(tips) == 0:
         return []
     centres, label = _kmeans(tips, count, rng)
@@ -420,20 +433,29 @@ def leaf_clumps(leaves, species, nodes, parent, rng, count, size, flat=0.8, puff
     for j, c in enumerate(centres):
         group = tips[label == j]
         spread = np.linalg.norm(group - c, axis=1).mean() if len(group) > 1 else 0.0
-        r = float(np.clip(size * rng.uniform(0.8, 1.15) + 0.5 * spread, size * 0.7, size * 1.6))
+        r = float(np.clip(size * rng.uniform(0.85, 1.15) + 0.35 * spread, size * 0.8, size * 1.35))
         clump = Canopy(c + np.array([0, 0, r * 0.15]), (r, r * rng.uniform(0.85, 1.1), r * flat))
-        clump.add_puffs(rng, puffs, 0.52, flat=min(0.9, flat + 0.05), underside=0.05)
+        clump.add_puffs(rng, puffs, 0.4, flat=min(0.9, flat + 0.05), underside=0.05)
         outward = np.linalg.norm(c[:2] - crown_c[:2]) / crown_r
         clump.depth = 0.45 + 0.4 * min(1.0, outward + max(0.0, (c[2] - crown_c[2]) / (crown_r + 1)))
         clumps.append(clump)
     lo = min(k.centre[2] - k.radii[2] for k in clumps)
     hi = max(k.centre[2] + k.radii[2] for k in clumps)
+    crown = _crown_of(clumps)
     for clump in clumps:
         clump.zrange = (lo, hi)
+        clump.crown = crown
         canopy_shells(leaves, f"shell_{species}", clump, rng, detail=3 if clump.size > 75 else 2)
-        n = int(cards * (6 + 14 * (clump.size / 100.0) ** 2))
+        n = int(cards * (5 + 9 * (clump.size / 100.0) ** 2))
         canopy_cards(leaves, f"cards_{species}", clump, rng, n, card_size, ATLAS_CELL[species], droop=droop)
     return clumps
+
+
+def _crown_of(clumps):
+    """One ellipsoid around a tree's clumps: the shape the whole canopy is lit as."""
+    lo = np.min([k.centre - k.radii for k in clumps], 0)
+    hi = np.max([k.centre + k.radii for k in clumps], 0)
+    return (lo + hi) / 2, np.maximum((hi - lo) / 2, 1.0)
 
 
 def _blob_points(rng, n, spheres, floor_z):
@@ -457,8 +479,8 @@ def oak(trunks, leaves, ground, x, y, s, rng, species="oak"):
     blossom = species == "blossom"
     base = np.array([x, y, ground - 25])
     lean = np.array([rng.uniform(-40, 40), rng.uniform(-40, 40), 0]) * s
-    trunk_top = base + lean + np.array([0, 0, (230 if blossom else 260) * s])
-    crown_z = trunk_top[2] + (150 if blossom else 190) * s
+    trunk_top = base + lean + np.array([0, 0, (215 if blossom else 210) * s])
+    crown_z = trunk_top[2] + (150 if blossom else 175) * s
     spheres = []
     for k in range(int(rng.integers(3, 5))):  # an asymmetric crown made of a few masses
         a = rng.uniform(0, 2 * math.pi)
@@ -466,7 +488,7 @@ def oak(trunks, leaves, ground, x, y, s, rng, species="oak"):
         c = np.array([x + lean[0] + math.cos(a) * d, y + lean[1] + math.sin(a) * d,
                       crown_z + rng.uniform(-40, 70) * s])
         r = rng.uniform(150, 200) * s
-        spheres.append((c, np.array([r, r, r * (0.55 if blossom else 0.75)])))
+        spheres.append((c, np.array([r, r, r * (0.68 if blossom else 0.95)])))
     pts = _blob_points(rng, 420, spheres, trunk_top[2] + 20 * s)
     nodes, parent, n_trunk = grow_branches(rng, base, trunk_top, pts, 34 * s, 230 * s, 60 * s,
                                            up_bias=0.15 if blossom else 0.3)
@@ -474,8 +496,9 @@ def oak(trunks, leaves, ground, x, y, s, rng, species="oak"):
     radii = pipe_radii(parent, 1.1 * s)
     radii *= 30 * s / max(radii[0], 1e-6)  # trunk about 60 cm across
     branch_meshes(trunks, leaves, "bark", nodes, parent, radii, n_trunk, 2.5 * s, flare_z=70 * s)
-    leaf_clumps(leaves, species, nodes, parent, rng, 15 if blossom else 14, (78 if blossom else 82) * s,
-                flat=0.7 if blossom else 0.8, puffs=5, cards=1.0, card_size=95 * s)
+    leaf_clumps(leaves, species, nodes, parent, rng, 7 if blossom else 6, (118 if blossom else 125) * s,
+                flat=0.8 if blossom else 0.92, puffs=9, cards=1.1, card_size=66 * s,
+                min_z=trunk_top[2] + 40 * s)
 
 
 def birch(trunks, leaves, ground, x, y, s, rng):
@@ -483,17 +506,17 @@ def birch(trunks, leaves, ground, x, y, s, rng):
     base = np.array([x, y, ground - 20])
     lean = np.array([rng.uniform(-60, 60), rng.uniform(-60, 60), 0]) * s
     trunk_top = base + lean + np.array([0, 0, 300 * s])
-    c = trunk_top + np.array([0, 0, 230 * s])
-    spheres = [(c, np.array([125, 125, 250]) * s),
-               (c + np.array([rng.uniform(-40, 40), rng.uniform(-40, 40), 120]) * s, np.array([90, 90, 150]) * s)]
-    pts = _blob_points(rng, 300, spheres, trunk_top[2] - 60 * s)
+    c = trunk_top + np.array([0, 0, 220 * s])
+    spheres = [(c, np.array([150, 150, 170]) * s),
+               (c + np.array([rng.uniform(-50, 50), rng.uniform(-50, 50), 110]) * s, np.array([110, 110, 120]) * s)]
+    pts = _blob_points(rng, 300, spheres, trunk_top[2] + 40 * s)
     nodes, parent, n_trunk = grow_branches(rng, base, trunk_top, pts, 28 * s, 120 * s, 40 * s, up_bias=0.3)
     nodes = smooth_skeleton(nodes, parent)
     radii = pipe_radii(parent, 0.8 * s, exponent=2.8)
     radii *= 17 * s / max(radii[0], 1e-6)
     branch_meshes(trunks, leaves, "birch_bark", nodes, parent, radii, n_trunk, 2.2 * s, flare_z=40 * s)
-    leaf_clumps(leaves, "birch", nodes, parent, rng, 16, 42 * s, flat=0.7, puffs=4, cards=1.3,
-                card_size=62 * s)
+    leaf_clumps(leaves, "birch", nodes, parent, rng, 6, 78 * s, flat=0.75, puffs=7, cards=1.2,
+                card_size=40 * s, min_z=trunk_top[2] + 70 * s)
 
 
 def pine(trunks, leaves, ground, x, y, s, rng):
@@ -527,8 +550,10 @@ def pine(trunks, leaves, ground, x, y, s, rng):
     lo = min(p[2] - r * 0.5 for p, r in pads)
     hi = max(p[2] + r for p, r in pads)
     centre = base + np.array([0, 0, height * 0.55])
+    crown = (np.array([base[0], base[1], (lo + hi) / 2]), np.array([200 * s, 200 * s, (hi - lo) / 2]))
     for p, r in pads:
         pad = Canopy(p, (r, r, r * 0.55), pointy=0.3)
+        pad.crown = crown
         pad.add_puffs(rng, 3, 0.55, flat=0.7, underside=0.0)
         pad.zrange = (lo, hi)
         pad.depth = 0.5 + 0.35 * min(1.0, np.linalg.norm(p[:2] - centre[:2]) / (180 * s))
@@ -550,11 +575,13 @@ def bush(leaves, ground, x, y, s, rng, berries=False):
         clump.add_puffs(rng, 4, 0.55, flat=0.9, underside=0.0)
         clumps.append(clump)
     lo, hi = ground, max(k.centre[2] + k.radii[2] for k in clumps)
+    crown = _crown_of(clumps)
     for clump in clumps:
         clump.zrange = (lo, hi)
+        clump.crown = crown
         clump.depth = 0.7
         canopy_shells(leaves, "shell_bush", clump, rng, detail=2)
-        canopy_cards(leaves, "cards_bush", clump, rng, int(6 + 10 * (clump.size / (60 * s)) ** 2), 60 * s,
+        canopy_cards(leaves, "cards_bush", clump, rng, int(5 + 8 * (clump.size / (60 * s)) ** 2), 42 * s,
                      ATLAS_CELL["bush"])
     if berries:  # a few soft red-violet berries peeking out (an original valberry-like touch)
         part = leaves.part("berry")
