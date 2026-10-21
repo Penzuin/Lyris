@@ -22,7 +22,8 @@ public class Lyris : ModuleRules
 			"SlateCore",
 			"Json",
 			"JsonUtilities",
-			"DeveloperSettings"
+			"DeveloperSettings",
+			"ApplicationCore"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
