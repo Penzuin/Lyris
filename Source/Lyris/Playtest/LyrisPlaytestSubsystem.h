@@ -5,7 +5,7 @@
 //     starter kit and keys.
 //   - T15 / C3 (Environment): spawns a farm plot, resource nodes and the combat training ground
 //     near where you start, unless the map already has them.
-//   - T16 (UI): an on-screen debug readout of the prompt and the bag.
+//   - T16 (UI): an on-screen readout of the interaction prompt (the bag has its own screen now).
 // It also speeds up real-time timers (crops, watering, node refills) so a test takes minutes.
 //
 // Console: lyris.Playtest 0 turns it all off; lyris.Playtest.Fast 0 keeps real-world timings.
@@ -55,5 +55,4 @@ private:
 	FDelegateHandle DrawHandle;
 	bool bCropsSpedUp = false;
 	bool bSpawnedSamples = false;
-	bool bShowBag = true;
 };

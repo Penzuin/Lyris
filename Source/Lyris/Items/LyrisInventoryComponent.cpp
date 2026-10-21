@@ -307,6 +307,42 @@ void ULyrisInventoryComponent::SetActiveSlot(int32 SlotIndex)
 	}
 }
 
+bool ULyrisInventoryComponent::MoveSlot(int32 From, int32 To)
+{
+	EnsureSlotCount();
+	if (From == To || !Slots.IsValidIndex(From) || !Slots.IsValidIndex(To) || Slots[From].IsEmpty())
+	{
+		return false;
+	}
+	FLyrisInventorySlot& Source = Slots[From];
+	FLyrisInventorySlot& Target = Slots[To];
+	if (!Target.IsEmpty() && Target.ItemId == Source.ItemId && Target.Quality == Source.Quality)
+	{
+		const ULyrisItemDefinition* Def = ResolveDefinition(Target);
+		const int32 MaxStack = FMath::Max(1, Def ? Def->MaxStack : 99);
+		const int32 Moved = FMath::Min(Source.Count, MaxStack - Target.Count);
+		if (Moved <= 0)
+		{
+			Swap(Source, Target);  // the target stack is full: swap instead, so the click still does something
+		}
+		else
+		{
+			Target.Count += Moved;
+			Source.Count -= Moved;
+			if (Source.Count <= 0)
+			{
+				Source = FLyrisInventorySlot();
+			}
+		}
+	}
+	else
+	{
+		Swap(Source, Target);
+	}
+	OnInventoryChanged.Broadcast();
+	return true;
+}
+
 ULyrisItemDefinition* ULyrisInventoryComponent::GetActiveItem() const
 {
 	if (!Slots.IsValidIndex(ActiveSlot) || Slots[ActiveSlot].IsEmpty())

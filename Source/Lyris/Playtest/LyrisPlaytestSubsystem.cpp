@@ -20,6 +20,7 @@
 #include "Harvest/LyrisResourceNode.h"
 #include "Harvest/LyrisResourceNodeTypes.h"
 #include "Interaction/LyrisInteractionComponent.h"
+#include "Items/LyrisHeldItemComponent.h"
 #include "Items/LyrisInventoryComponent.h"
 #include "Items/LyrisItemDefinition.h"
 #include "Items/LyrisItemRegistry.h"
@@ -49,12 +50,6 @@ namespace LyrisPlaytest
 		{ TEXT("seed_moonbell"), 3 },
 	};
 
-	static const FKey SlotKeys[] =
-	{
-		EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five,
-		EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine,
-	};
-
 	template <typename T>
 	T* FindOrAddComponent(AActor* Owner, const TCHAR* Name, bool& bOutAdded)
 	{
@@ -68,16 +63,6 @@ namespace LyrisPlaytest
 		Added->RegisterComponent();  // owner has begun play, so this runs BeginPlay too
 		bOutAdded = true;
 		return Added;
-	}
-
-	static FString QualitySuffix(ELyrisItemQuality Quality)
-	{
-		if (Quality == ELyrisItemQuality::Normal)
-		{
-			return FString();
-		}
-		const UEnum* Enum = StaticEnum<ELyrisItemQuality>();
-		return Enum ? FString::Printf(TEXT(" (%s)"), *Enum->GetDisplayNameTextByValue(static_cast<int64>(Quality)).ToString()) : FString();
 	}
 }
 
@@ -187,6 +172,14 @@ void ULyrisPlaytestSubsystem::SetUpCharacter(ACharacter* Character)
 	Inventory = Inv;
 	Interaction = Interact;
 
+	// The selected hotbar item shows in the hand (stands in for the Player lane adding it).
+	bool bAddedHeld = false;
+	if (ULyrisHeldItemComponent* Held = LyrisPlaytest::FindOrAddComponent<ULyrisHeldItemComponent>(
+		Character, TEXT("PlaytestHeldItem"), bAddedHeld); Held && bAddedHeld && Character->GetRootComponent())
+	{
+		Held->AttachToComponent(Character->GetRootComponent(), FAttachmentTransformRules::KeepWorldTransform);
+	}
+
 	// Starter kit, once per character (stepping off the boat again keeps what you gathered).
 	if (Inv && Inv->CountOfId(TEXT("tool_hoe")) == 0)
 	{
@@ -194,7 +187,7 @@ void ULyrisPlaytestSubsystem::SetUpCharacter(ACharacter* Character)
 		{
 			Inv->AddItemById(Item.Id, Item.Count);
 		}
-		Inv->SetActiveSlot(4);  // turnip seeds: the quickest crop
+		Inv->SetActiveSlot(0);  // the hoe, in hand
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("Lyris playtest: kit ready on %s (inventory %s, interaction %s)."),
@@ -339,25 +332,11 @@ void ULyrisPlaytestSubsystem::SpawnSamples(ACharacter* Character)
 
 void ULyrisPlaytestSubsystem::HandleInput(APlayerController* PC, ACharacter* Character)
 {
-	if (PC->WasInputKeyJustPressed(EKeys::I))
-	{
-		bShowBag = !bShowBag;
-	}
+	// Hotbar keys, the mouse wheel and the satchel (I / Tab) belong to the inventory UI now
+	// (ULyrisInventoryUISubsystem).
 	if (!Character)
 	{
 		return;
-	}
-
-	ULyrisInventoryComponent* Inv = Inventory.Get();
-	if (Inv)
-	{
-		for (int32 Index = 0; Index < static_cast<int32>(UE_ARRAY_COUNT(LyrisPlaytest::SlotKeys)); ++Index)
-		{
-			if (PC->WasInputKeyJustPressed(LyrisPlaytest::SlotKeys[Index]))
-			{
-				Inv->SetActiveSlot(Index);
-			}
-		}
 	}
 
 	ULyrisInteractionComponent* Interact = Interaction.Get();
@@ -398,44 +377,15 @@ void ULyrisPlaytestSubsystem::DrawReadout(UCanvas* Canvas, APlayerController* PC
 	}
 
 	const FColor Gold(255, 214, 140);
-	const FColor Cream(245, 236, 214);
 	const FColor Soft(200, 200, 186);
 
 	TArray<TPair<FString, FColor>> Lines;
-	Lines.Emplace(TEXT("LYRIS PLAYTEST     F interact     1-9 pick slot     I bag     LMB / RMB / Shift fight"), Gold);
+	Lines.Emplace(TEXT("LYRIS PLAYTEST     F interact     1-9 / wheel hotbar     I or Tab satchel     LMB / RMB / Shift fight"), Gold);
 
 	const ACharacter* Character = Cast<ACharacter>(PC->GetPawn());
 	if (!Character)
 	{
 		Lines.Emplace(TEXT("(aboard the boat: step ashore to farm and gather)"), Soft);
-	}
-	else if (const ULyrisInteractionComponent* Interact = Interaction.Get())
-	{
-		const FString Prompt = Interact->GetCurrentPrompt().ToString();
-		Lines.Emplace(Prompt.IsEmpty() ? FString(TEXT("   ...")) : FString::Printf(TEXT("   [F]  %s"), *Prompt), Cream);
-	}
-
-	if (const ULyrisInventoryComponent* Inv = Inventory.Get(); Inv && bShowBag)
-	{
-		Lines.Emplace(TEXT(" "), Soft);
-		Lines.Emplace(TEXT("BAG"), Gold);
-		const TArray<FLyrisInventorySlot> Slots = Inv->GetSlots();
-		const int32 Active = Inv->GetActiveSlot();
-		for (int32 Index = 0; Index < Slots.Num(); ++Index)
-		{
-			const FLyrisInventorySlot& Slot = Slots[Index];
-			if (Slot.IsEmpty())
-			{
-				continue;
-			}
-			const ULyrisItemDefinition* Def = Slot.Definition ? Slot.Definition.Get()
-				: ULyrisItemRegistry::FindItem(World, Slot.ItemId);
-			const FString Name = Def ? Def->DisplayName.ToString() : Slot.ItemId.ToString();
-			const bool bActive = Index == Active;
-			const FString Label = Index < 9 ? FString::Printf(TEXT("%d"), Index + 1) : FString(TEXT(" "));
-			Lines.Emplace(FString::Printf(TEXT("%s %s   %s  x%d%s"), bActive ? TEXT(">") : TEXT(" "), *Label, *Name,
-				Slot.Count, *LyrisPlaytest::QualitySuffix(Slot.Quality)), bActive ? Gold : Soft);
-		}
 	}
 
 	UFont* Font = GEngine->GetMediumFont();
