@@ -1,0 +1,2 @@
+# Small generated reference image; kept in regular git like Art/** (the LFS upload host is unreachable from cloud agents).
+world_map_overview.jpg -filter -diff -merge -text
