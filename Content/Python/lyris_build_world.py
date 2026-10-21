@@ -1059,6 +1059,10 @@ def _water_body_common(actor):
 # matched to their step by label (STEP labels below), which is also how streamed-out actors are found
 # without loading them.
 
+class _Skipped(Exception):
+    """An optional build step that cannot run yet (its module is missing). Not recorded, so it runs later."""
+
+
 class _Cancelled(Exception):
     """The user pressed Cancel on a progress dialog."""
 
@@ -1726,8 +1730,7 @@ def build(force=False, only=None, startup=False, check_mode=True):
         try:
             mod = importlib.import_module(name)
         except ImportError:
-            _log(f"{name}.py is not in this project yet; skipping (it is optional)")
-            return
+            raise _Skipped(f"{name}.py is not in this project yet")
         importlib.reload(mod)
         for call in calls:
             getattr(mod, call)()
@@ -1749,7 +1752,7 @@ def build(force=False, only=None, startup=False, check_mode=True):
             _warn(f"{exc}; nothing else was changed. Run w.build() again to continue")
             return
 
-    done, failed = [], []
+    done, failed, skipped = [], [], []
     for step in steps:
         title = STEP_TITLES[step]
         b.step = step
@@ -1761,6 +1764,10 @@ def build(force=False, only=None, startup=False, check_mode=True):
         except _Cancelled as exc:
             _warn(f"{exc}. Stopped; finished steps are saved. Run w.build() again to continue")
             break
+        except _Skipped as exc:  # optional step whose module is not here yet: not recorded, runs once it is
+            _log(f"skipped {title}: {exc}; it runs on a later w.build() once that module is here")
+            skipped.append(step)
+            continue
         except Exception as exc:  # keep going so one failure doesn't stop the rest
             _warn(f"could not build {title}: {exc}")
             failed.append(step)
@@ -1772,7 +1779,7 @@ def build(force=False, only=None, startup=False, check_mode=True):
         _log(f"built {title}")
     b.step = None
 
-    left = outdated_steps(recorded)
+    left = [s for s in outdated_steps(recorded) if s not in skipped]
     if not left:
         marker.set_actor_label(f"{MARKER_PREFIX}{BUILD_VERSION}")
     if landscape is not None:
