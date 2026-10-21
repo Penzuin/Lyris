@@ -1905,7 +1905,15 @@ def _dock_lamp(b, eas, spot):
 
 def _finish_landscape(landscape, eas, manifest):
     """Applies the material and settings to an imported landscape and checks its placement."""
-    mat = unreal.load_asset(f"{MAT_DIR}/M_LyrisWorldTerrain_v{TERRAIN_MAT_VERSION}")
+    mat = None
+    try:  # T50's island-style material wins once it exists; v1 (paint layers only) draws black without layers
+        import lyris_world_terrain
+        if unreal.EditorAssetLibrary.does_asset_exist(lyris_world_terrain.MAT_PATH):
+            mat = unreal.load_asset(lyris_world_terrain.MAT_PATH)
+    except ImportError:
+        pass
+    if mat is None:
+        mat = unreal.load_asset(f"{MAT_DIR}/M_LyrisWorldTerrain_v{TERRAIN_MAT_VERSION}")
     proxies = _landscape_proxies(eas)
     for proxy in proxies:
         if mat:
