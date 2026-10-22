@@ -82,6 +82,7 @@ Ideas or requests an agent ran into that are not scheduled yet.
 | P4 | Special soils and glasshouses | Harvest | Design (T28) | §7 step 5; soils found on far islands |
 | P5 | Scarecrow constructs that harvest, replant and care in a radius | Harvest | Design (T28) | §7 step 6; objects, not creatures |
 | P6 | Crop hover tooltip: stage, time to ripe, active bonuses | UI | Design (T28) | Shows that tending helps without nagging |
+| ? | Moonharbor town plan: tiers from the water to the keep, landmark hierarchy and sightlines, arrival at dusk, routes and walk times, climb heights for Breath, district shape language, which buildings open, lamps; plus a Genshin town-design research note | Design | User (2026-10-22) | Done on `lane/design-moonharbor-town-plan`: `design/moonharbor_town_plan.md`, `design/genshin_town_design_research.md`, `design/moonharbor/town_plan.png`. Feeds T55. Items marked *new* need the user's OK (section 10) |
 
 ## Done
 
