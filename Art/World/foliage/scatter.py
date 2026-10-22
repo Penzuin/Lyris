@@ -59,6 +59,9 @@ SEED = 5150
 CELL_M = 256.0                  # World Partition runtime grid cell (lyris_build_world WP_CELL_M)
 WORLD_MIN, WORLD_SIZE = -12500.0, 25000.0
 FIELD_N = 4096                  # whole-world working fields: 6.1 m per pixel
+# Area the working fields cover: (x0, z0, size) in MC metres. The whole world here; scatter_moonharbor.py
+# (T55) points it at Moonharbor's frame, where X and Z start at different values.
+FRAME = [WORLD_MIN, WORLD_MIN, WORLD_SIZE]
 LAYERS = ["Grass", "Forest", "Sand", "Rock", "Snow", "Badlands", "Salt", "Volcanic"]
 
 TREELINE_M = 245.0
@@ -168,7 +171,12 @@ def fbm(x, z, scale, octaves, salt):
 
 
 def to_px(x, z, n):
-    return (x - WORLD_MIN) / WORLD_SIZE * n - 0.5, (z - WORLD_MIN) / WORLD_SIZE * n - 0.5
+    fx, fz, size = FRAME
+    return (x - fx) / size * n - 0.5, (z - fz) / size * n - 0.5
+
+
+def frame_is_world():
+    return list(FRAME) == [WORLD_MIN, WORLD_MIN, WORLD_SIZE]
 
 
 def sample(field, x, z, order=1):
@@ -249,6 +257,7 @@ class Terrain:
 def world_masks(T, log):
     """Water, distances, slope, smoothed forest and convexity on the working grid."""
     n, px = FIELD_N, T.px_m
+    fx, fz, fsize = FRAME
     H = T.H
     gy, gx = np.gradient(H, px)
     slope = np.degrees(np.arctan(np.hypot(gx, gy)))
@@ -258,7 +267,7 @@ def world_masks(T, log):
     from PIL import ImageDraw
     draw = ImageDraw.Draw(lake_img)
     for lake in T.man.get("lakes", []):
-        pts = [((u / 100.0 - WORLD_MIN) / WORLD_SIZE * n, (v / 100.0 - WORLD_MIN) / WORLD_SIZE * n)
+        pts = [((u / 100.0 - fx) / fsize * n, (v / 100.0 - fz) / fsize * n)
                for u, v in lake["outline_ue"]]
         if len(pts) >= 3:
             draw.polygon(pts, fill=255)
@@ -269,7 +278,7 @@ def world_masks(T, log):
     levels = {}
     for lake in T.man.get("lakes", []):
         cx, cz = lake["centre_mc"]
-        i, j = int((cz - WORLD_MIN) / WORLD_SIZE * n), int((cx - WORLD_MIN) / WORLD_SIZE * n)
+        i, j = int((cz - fz) / fsize * n), int((cx - fx) / fsize * n)
         if 0 <= i < n and 0 <= j < n and lake_lab[i, j]:
             levels[lake_lab[i, j]] = max(levels.get(lake_lab[i, j], -1e9), lake["level_m"])
     for lab, lv in levels.items():
@@ -279,7 +288,7 @@ def world_masks(T, log):
     river_img = Image.new("L", (n, n), 0)
     draw = ImageDraw.Draw(river_img)
     for r in T.man.get("rivers", []):
-        pts = [((p[0] / 100.0 - WORLD_MIN) / WORLD_SIZE * n, (p[1] / 100.0 - WORLD_MIN) / WORLD_SIZE * n)
+        pts = [((p[0] / 100.0 - fx) / fsize * n, (p[1] / 100.0 - fz) / fsize * n)
                for p in r["points_ue"]]
         w = max(1, int(round(r.get("width_m", 20) / px)))
         draw.line(pts, fill=255, width=w)
@@ -289,7 +298,12 @@ def world_masks(T, log):
     if bidx.ndim == 3:
         bidx = bidx[..., 0]
     river_b = np.isin(bidx, [B["river"], B["frozen river"]])
-    river_b = np.asarray(Image.fromarray(river_b.astype(np.uint8) * 255).resize((n, n), Image.NEAREST)) > 0
+    if frame_is_world():
+        river_b = np.asarray(Image.fromarray(river_b.astype(np.uint8) * 255).resize((n, n), Image.NEAREST)) > 0
+    else:  # a smaller frame: look the atlas up at each field pixel
+        c = (np.arange(n) + 0.5) / n * fsize
+        gz, gx_ = np.meshgrid(fz + c, fx + c, indexing="ij")
+        river_b = lookup(river_b, gx_, gz)
     river |= river_b & (H < 6.0) & (slope < 8)
     water = sea | lake | river
     log(f"water: sea {sea.mean() * 100:.1f}%, lakes {lake.sum() * px * px / 1e6:.1f} km2, "

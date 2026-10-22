@@ -546,6 +546,9 @@ SEA_GROUND_SOURCES = [
     ("Baked", "Art/World/tiles/World_SeaGround.png", 512.0, -128.0),          # 16-bit, bake height encoding
     ("Atlas", "Art/World/atlas/hmap.png", 255.0 * 1.5, -64.0 - 63.0),        # 8-bit, MC Y -> metres from sea
 ]
+# Where the ground map lies, (min X, min Y, size) in UE cm; None = the whole world, centred on the origin.
+# lyris_build_moonharbor sets Moonharbor's (T55) while it builds that map's sea.
+SEA_GROUND_BOUNDS_CM = None
 
 # Contract defaults: (yaw deg, wavelength cm, amplitude cm, steepness) and the home calm zone. The calm
 # zone is Moonharbor's bay (MC -200, -2660; 550 m, easing out over 400 m), the same as
@@ -681,8 +684,10 @@ _SEA_OFFSET_BODY = "return float3(snap + off.xy, SeaLevel + off.z - P.z);"
 _SEA_NORMAL_BODY = "return n;"
 
 
-def _sea_shade_body(ground_scale_m, ground_offset_m, half_cm):
-    """Base colour (rgb) and foam amount (a). Ground (0..1 from the ground map) -> cm from sea level."""
+def _sea_shade_body(ground_scale_m, ground_offset_m, half_cm, centre_cm=(0.0, 0.0)):
+    """Base colour (rgb) and foam amount (a). Ground (0..1 from the ground map) -> cm from sea level.
+    The ground map covers a square of half size half_cm round centre_cm (the world's: round the origin)."""
+    rel = "p" if not any(centre_cm) else f"(p - float2({centre_cm[0]:.1f}, {centre_cm[1]:.1f}))"
     return f"""
 // Value noise for brush-like breakup (macros: a Custom node body cannot hold helper functions).
 #define LYRIS_SEA_HASH(q) frac(sin(dot(fmod(q, 512.0), float2(127.1, 311.7))) * 43758.5453)
@@ -706,7 +711,7 @@ float fres = pow(1.0 - saturate(dot(n, normalize(CamVec))), 4.0);
 col = lerp(col, Crest, fres * 0.45);
 
 // Shallows: water depth over the world's ground, measured at the moving surface.
-float inMap = all(abs(p) < {half_cm:.1f}) ? 1.0 : 0.0;  // beyond the world it is open sea
+float inMap = all(abs({rel}) < {half_cm:.1f}) ? 1.0 : 0.0;  // beyond the map it is open sea
 float ground = lerp({SEA_DEEP:.1f}, (Ground * {ground_scale_m:.4f} + ({ground_offset_m:.4f})) * 100.0, inMap);
 float depth = SeaLevel + off.z - ground;
 col = lerp(col, Shallow, (1.0 - smoothstep(30.0, 300.0, depth)) * 0.85);
@@ -859,7 +864,12 @@ def _import_sea_ground(source):
     tcs = unreal.TextureCompressionSettings
     # 16-bit heights keep their precision as half floats; the 8-bit atlas is stored uncompressed like the
     # Harbor's ground map (both sample as linear colour, which the material expects).
-    comp = getattr(tcs, "TC_HDR", None) if key == "Baked" else getattr(tcs, "TC_VECTOR_DISPLACEMENTMAP", None)
+    if key == "Baked":
+        comp = getattr(tcs, "TC_HDR", None)
+    elif key == "Atlas":
+        comp = getattr(tcs, "TC_VECTOR_DISPLACEMENTMAP", None)
+    else:  # Moonharbor's 16-bit map (T55): one half-float channel is enough and a quarter of TC_HDR's memory
+        comp = getattr(tcs, "TC_HALF_FLOAT", None) or getattr(tcs, "TC_HDR", None)
     _set(tex, "srgb", False)
     if comp is not None:
         _set(tex, "compression_settings", comp)
@@ -954,10 +964,18 @@ def _make_sea_material():
 
     world_min = WORLD_HALF_FALLBACK_CM * -1.0
     world_size = WORLD_HALF_FALLBACK_CM * 2.0
+    half, centre = WORLD_HALF_FALLBACK_CM, (0.0, 0.0)
+    if SEA_GROUND_BOUNDS_CM is not None:  # a ground map over part of the world (Moonharbor, T55)
+        mx, my, size = SEA_GROUND_BOUNDS_CM
+        half, centre = size / 2.0, (mx + size / 2.0, my + size / 2.0)
     if source is not None:
         ground_tex = _import_sea_ground(source)
+        if SEA_GROUND_BOUNDS_CM is None:
+            uv_code = f"return (P.xy + snap - ({world_min:.1f})) / {world_size:.1f};"
+        else:
+            uv_code = f"return (P.xy + snap - float2({mx:.1f}, {my:.1f})) / {size:.1f};"
         ground_uv = custom("SeaGroundUV", f"float2 snap = floor(Cam.xy / {SEA_SNAP:.1f} + 0.5) * {SEA_SNAP:.1f};\n"
-                           f"return (P.xy + snap - ({world_min:.1f})) / {world_size:.1f};", ct.CMOT_FLOAT2)
+                           + uv_code, ct.CMOT_FLOAT2)
         ground = (g.tex(ground_tex, ground_uv, linear=True), "R")
         scale_m, offset_m = source[2], source[3]
     else:
@@ -967,7 +985,7 @@ def _make_sea_material():
     colours = [(k, g.colour(PALETTE[name][0]), "") for k, name in
                (("Trough", "SeaTrough"), ("Mid", "Sea"), ("Crest", "SeaCrest"), ("Shallow", "Shallows"),
                 ("Foam", "SeaFoam"))]
-    shade = custom("SeaShade", _sea_hlsl(SEA_FADE_PIXEL, _sea_shade_body(scale_m, offset_m, WORLD_HALF_FALLBACK_CM)),
+    shade = custom("SeaShade", _sea_hlsl(SEA_FADE_PIXEL, _sea_shade_body(scale_m, offset_m, half, centre)),
                    ct.CMOT_FLOAT4,
                    [("CamVec", g.node(unreal.MaterialExpressionCameraVectorWS), ""), ("Ground", ground[0], ground[1])]
                    + colours)
