@@ -13,6 +13,7 @@ The game world is the Lyris Minecraft map at full size: 1 block = 1 m, 25 x 25 k
 | Editor build | `Content/Python/lyris_build_world.py` |
 | Landmark blockouts: generator, data, editor script | `make_landmarks.py`, `landmarks.json`, `Content/Python/lyris_build_landmarks.py` |
 | Preview of the last bake | `preview_hillshade.jpg` |
+| **Moonharbor (T55): the 1.0 map, the default map while 1.0 is built** | section 6: `bake_moonharbor.py`, `foliage/scatter_moonharbor.py`, `Content/Python/lyris_build_moonharbor.py`, previews `preview_mh_*.jpg` |
 
 ## 1. Bake the terrain (about 1 hour, once per change)
 
@@ -314,6 +315,71 @@ rebuilt as assemblies of one branch and one leaf clump.
 `forest_edge`, `meadow`, `greengrace`, `sunreach_plains`, `saltreach_scrub`, `snowy_pines`,
 `valley_aerial`, the species line-ups `lineup_trees` and `lineup_understory`, and `world_density`
 (dark green = trees, light green = understory).
+
+## 6. Moonharbor (T55): the 1.0 map
+
+The first release is Moonharbor only (`design/world_chunks.md`). The full 25 km world did not fit the playtest PC
+as one World Partition map, so 1.0 gets its own small Basic level, `/Game/Lyris/Maps/Moonharbor`, which the editor and
+the game open by default. Same coordinates as the world, so landmarks and tags line up 1:1. The full world
+(`Lyris`, `LyrisImport`) stays as it is.
+
+| Piece | Size | What |
+|---|---|---|
+| Moonharbor landscape | 4033 x 4033 at **1 m**, 32 x 32 components of 2 x 2 sections of 63 quads (1024) | X -1450..2582, Z -4650..-618: all 1.0 land, Starfall Bay, the Teeth, and the Observatory and the Delvers' Gate for the view |
+| Lampwick landscape | 1009 x 505 at 2 m, 16 x 8 components (128) | X -3466..-1450, Z -5000..-3992: the gulf west of the square and the six Lampwick Skerries (walkable) |
+| Backdrop | one mesh, the whole world at 25 m, about 1 M vertices, Nanite, vertex-painted | the horizon: the Observatory, the white north, the far shores; a hole under the two landscapes |
+
+Why 1 m and these sizes: 4033 is the largest UE-recommended size that covers all 1.0 land plus the bay in one square at
+1 m (UE's own table: 63-quad sections, 2 x 2 per component, 32 x 32 components). 1024 components is about 1/16 of the
+world import's 16641. The Skerries sit 2 km west of the square, so they get their own small 2 m landscape instead of
+quadrupling the big one.
+
+What the Moonharbor bake adds on top of the world bake (same seed, same canon heights): coasts on a smoothed line (no
+25 m staircase), Starfall Bay's drowned Aurenhal terraces (12 levels down to 91 m, low parapets, collapsed stretches,
+radial stair streets), a sand beach and shelf in the bay's south lobe, Oruth's pit floor at exactly Y -40; Keep Hill's
+layered cliff toward the bay (20 to 35 m), the switchback Keep Road (5 hairpins, about 14% grade) from (326, -2378)
+to the gate at Y 138, the flat waystone upland at Y 128; 167 field terraces of 52 x 74 m with low banks and hedgerows
+in Wayside Fields, and a ford at (378, -1947); Mistwater Shore's low sea cliffs and ten horseshoe coves, the Old Coast
+Road along the cliff tops from Ilwen's Lighthouse (4 km), the Mistwater Bridge span over the river mouth; reef rocks at
+the Teeth; coves and tors on the Skerries. The bake prints the canon checks (gate 138, lighthouse terrace 69 + the
+build's floor, Syrena's islet 64, Moonwell 64.5, Oruth -40, waystone 128).
+
+### Make it
+
+    python Art/World/bake_moonharbor.py               # about 5 minutes, ~3 GB RAM (--preview: 4 m, 3 minutes)
+    python Art/World/foliage/make_species.py          # once, about 30 s
+    python Art/World/foliage/scatter_moonharbor.py    # about 1 minute
+
+Output in `moonharbor/` (not in git): `Moonharbor_Height.png`, `Lampwick_Height.png`, `backdrop.glb`, `biome/`,
+`Moonharbor_SeaGround.png`, `moonharbor_manifest.json`, `scatter/`. Add `--fields-cache fields.pkl` to reuse the
+world fields on later runs. `--previews-only` re-renders the preview images.
+
+### In the editor
+
+1. Open the project. In the Output Log (Python): `import lyris_build_moonharbor as mh; mh.build()`. It creates the
+   Basic level and builds what does not stand on the ground (sky, sea, lakes, rivers, bounds, backdrop), then prints the
+   import steps (`mh.import_steps()` prints them again).
+2. Landscape mode > Manage > New > Import from File, twice: `Moonharbor_Height.png` (location, scale and the 63 / 2x2 /
+   32x32 settings from the log), then `Lampwick_Height.png` (63 / 1x1 / 16x8, scale 200). No material, no layers.
+3. Selection Mode (Shift+1), then `mh.finish()`: it snaps both landscapes onto their exact corners, builds the terrain
+   look, the 1.0 landmarks and the Mistwater Bridge, the player start on Lantern Pier, the boat, dock point, mooring
+   and dock lamp (tagged as in T37), the foliage, checks the ground against the bake and saves. Press Play.
+
+Incremental like the world: each step has a version on the map's marker (`LyrisMoonharbor_v1`); `mh.build()` redoes
+only changed steps, `mh.build(only=["foliage"])` some, `mh.report()` says what is out of date (the editor runs it at
+startup). Rebaking the terrain: delete both landscapes, import again, `mh.finish()`.
+
+### On an 8 GB GPU
+
+* Landscapes: about 17 M vertices in 1152 components, Nanite on, no paint layers (the material reads two 4096
+  biome maps, ~21 MB each with mips). Everything stays loaded (no World Partition): roughly the cost of the world map's
+  1.5 km loading range, without the streaming.
+* Foliage: about 66 000 trees and 131 000 understory instances in 86 cells of 512 m (2 actors each, ~20 HISM
+  components per cell, max 34), the T51 cull distances and authored LODs; Landscape Grass only near the camera.
+  Instance data is roughly 40 MB.
+* Backdrop: one Nanite mesh (~2 M triangles), vertex colours, no textures. Sea ground map: 2048 px, one half-float channel.
+* If the editor still runs short: Engine Scalability High (not Epic), and the steps under "If the editor freezes"
+  below. `mh.build(only=["foliage"])` after `f.clear()` brings the trees back.
 
 ## If the editor freezes or runs out of video memory
 

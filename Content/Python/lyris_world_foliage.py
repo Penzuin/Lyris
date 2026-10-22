@@ -56,7 +56,8 @@ SRC_DIR = "Art/World/foliage"
 TAG = "LyrisWorldFoliage"
 LABEL_PREFIX = "LWF_"
 FOLDER = "WorldFoliage"
-CELL_CM = 25600.0
+CELL_CM = 25600.0             # read from the scatter's summary (cell_m) when build() runs
+SCATTER_DIR = f"{SRC_DIR}/scatter"   # lyris_build_moonharbor points this at Art/World/moonharbor/scatter (T55)
 CELLS_PER_BATCH = 12          # cells spawned between saves (each up to two actors, ~15 components)
 DELETE_BATCH = 100
 LOAD_BATCH = 200
@@ -135,7 +136,7 @@ def _read_json(rel):
 
 def _inputs():
     species = _read_json(f"{SRC_DIR}/species.json")
-    summary = _read_json(f"{SRC_DIR}/scatter/summary.json")
+    summary = _read_json(f"{SCATTER_DIR}/summary.json")
     missing = []
     if species is None:
         missing.append("python Art/World/foliage/make_species.py")
@@ -556,7 +557,7 @@ def _textures(species_json):
         if not unreal.EditorAssetLibrary.does_asset_exist(f"{TEX_DIR}/{n}"):
             _import_file(os.path.join(src, n + ".png"), TEX_DIR)
     tex = {n: unreal.load_asset(f"{TEX_DIR}/{n}") for n in names}
-    tint_png = _project_path(f"{SRC_DIR}/scatter/grass_tint.png")
+    tint_png = _project_path(f"{SCATTER_DIR}/grass_tint.png")
     tint = None
     if os.path.exists(tint_png):
         name = f"T_LyrisGrassTint_v{FOLIAGE_VERSION}"
@@ -1045,7 +1046,7 @@ def report():
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     labels = _our_labels(_descs(), eas)
     current = [l for l in labels if (_parse_label(l) or ("",))[0] == sig]
-    cells = os.listdir(_project_path(f"{SRC_DIR}/scatter/cells"))
+    cells = os.listdir(_project_path(f"{SCATTER_DIR}/cells"))
     _log(f"signature {sig}: {len(current)} actors built, {len(labels) - len(current)} outdated, "
          f"{len(cells)} cells in the scatter; {summary.get('total')} instances ({summary.get('by_group')})")
     return len(current), len(labels) - len(current)
@@ -1053,11 +1054,14 @@ def report():
 
 def build(force=False):
     """Incremental: imports what is missing, then spawns the cells not built with this scatter's signature."""
+    global CELL_CM
     species_json, summary = _inputs()
     sig = _signature(summary)
+    CELL_CM = float(summary.get("cell_m", 256.0)) * 100.0
     _ensure_map()
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-    _log(f"building (signature {sig}, {summary.get('total')} instances in {summary.get('cells')} cells)")
+    _log(f"building (signature {sig}, {summary.get('total')} instances in {summary.get('cells')} cells "
+         f"of {CELL_CM / 100:.0f} m)")
 
     tex, tint = _textures(species_json)
     mats = _materials(species_json, tex, tint)
@@ -1082,7 +1086,7 @@ def build(force=False):
         raise RuntimeError(f"{exc}; run build() again to continue")
     done = {(p[1], p[2], p[3]) for p in map(_parse_label, existing) if p and p[0] == sig and not force}
 
-    cells_dir = _project_path(f"{SRC_DIR}/scatter/cells")
+    cells_dir = _project_path(f"{SCATTER_DIR}/cells")
     files = sorted(f for f in os.listdir(cells_dir) if f.endswith(".bin"))
     todo = []
     for fname in files:
@@ -1091,7 +1095,7 @@ def build(force=False):
             continue
         todo.append((ix, iy, fname))
     # Nearest Moonharbor first: the area you play in is ready soonest if the build is stopped.
-    todo.sort(key=lambda c: math.hypot((c[0] + 0.5) * 256 - 200, (c[1] + 0.5) * 256 + 2300))
+    todo.sort(key=lambda c: math.hypot((c[0] + 0.5) * CELL_CM / 100 - 200, (c[1] + 0.5) * CELL_CM / 100 + 2300))
     _log(f"{len(files) - len(todo)} cells already built, {len(todo)} to build")
     if not todo:
         return True

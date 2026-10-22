@@ -43,6 +43,7 @@ new biomes' textures in Art/World/paint_world_textures.py, whose colours never r
 their luminance does).
 """
 
+import contextlib
 import json
 import math
 import os
@@ -368,12 +369,32 @@ def _textures(reimport=False):
 
 
 def _world_bounds():
+    """(min X, min Y, size) of the biome maps in UE cm. The world's start at the same X and Y; Moonharbor's
+    (T55, Art/World/moonharbor/biome) give both in world_min_ue_xy."""
     meta = _read_json(os.path.join(BIOME_DIR, BIOME_META)) or {}
     lo = float(meta.get("world_min_ue", WORLD_MIN_FALLBACK))
+    lo_x, lo_y = (float(v) for v in meta.get("world_min_ue_xy", [lo, lo]))
     size = float(meta.get("world_size_ue", WORLD_SIZE_FALLBACK))
     if meta.get("row_axis", "UE Y").split()[1:2] != ["Y"]:
         _warn(f"biome_maps.json row axis is '{meta.get('row_axis')}', expected UE Y: the biomes may be mirrored")
-    return lo, size
+    return lo_x, lo_y, size
+
+
+@contextlib.contextmanager
+def variant(mat_name, biome_dir, tex_dir):
+    """Builds and applies another copy of the look with its own biome maps, e.g. Moonharbor's (T55):
+
+        with t.variant("M_LyrisMoonharborTerrain_v1", "Art/World/moonharbor/biome", "/Game/Lyris/Textures/MoonharborTerrain"):
+            t.build(); t.apply()
+
+    The world's material and textures are not touched."""
+    global MAT_NAME, MAT_PATH, BIOME_DIR, TEX_DIR
+    saved = (MAT_NAME, MAT_PATH, BIOME_DIR, TEX_DIR)
+    MAT_NAME, MAT_PATH, BIOME_DIR, TEX_DIR = mat_name, f"{MAT_DIR}/{mat_name}", biome_dir, tex_dir
+    try:
+        yield MAT_PATH
+    finally:
+        MAT_NAME, MAT_PATH, BIOME_DIR, TEX_DIR = saved
 
 
 def _grass_types():
@@ -390,7 +411,7 @@ def _grass_types():
 
 def _graph(g, tex, smp, grass_types):
     P = LOOK
-    lo, size = _world_bounds()
+    lo_x, lo_y, size = _world_bounds()
     wp = g.wp()
     xy = g.mask(wp, "RG")
     z_m = g.mul(g.mask(wp, "B"), k=0.01)                          # metres above the sea (sea level is Z 0)
@@ -418,7 +439,10 @@ def _graph(g, tex, smp, grass_types):
     mid4 = g.mask(mid, "RGBA")
 
     # Biome weights by world position, the UV wandering a little so pixel steps never show.
-    uv = g.mul(g.sub(xy, k=lo), k=1.0 / size)
+    if lo_x == lo_y:
+        uv = g.mul(g.sub(xy, k=lo_x), k=1.0 / size)
+    else:  # a frame that starts at different X and Y (Moonharbor)
+        uv = g.mul(g.sub(xy, g.node(unreal.MaterialExpressionConstant2Vector, r=lo_x, g=lo_y)), k=1.0 / size)
     warp = g.mul(g.add(g.mask(mid, "RG"), k=-0.5), k=2.0 * WARP_M * 100.0 / size)
     uvw = g.add(uv, warp)
     bA = g.tex(tex["T_LyrisBiomeA"], uvw, smp["T_LyrisBiomeA"])

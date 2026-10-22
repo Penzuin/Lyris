@@ -110,12 +110,14 @@ class Tex:
 class Look:
     """numpy twin of lyris_world_terrain._graph (base colour only)."""
 
-    def __init__(self):
-        with open(os.path.join(BIOME, "biome_maps.json")) as f:
+    def __init__(self, biome_dir=BIOME):
+        with open(os.path.join(biome_dir, "biome_maps.json")) as f:
             bm = json.load(f)
         self.lo, self.size, self.res = bm["world_min_ue"], bm["world_size_ue"], bm["res"]
-        self.bA = Tex(os.path.join(BIOME, "T_LyrisBiomeA.png"), wrap=False)
-        self.bB = Tex(os.path.join(BIOME, "T_LyrisBiomeB.png"), wrap=False)
+        # Moonharbor's maps (T55) start at different X and Y; the world's start at the same value.
+        self.lo_x, self.lo_y = bm.get("world_min_ue_xy", [self.lo, self.lo])
+        self.bA = Tex(os.path.join(biome_dir, "T_LyrisBiomeA.png"), wrap=False)
+        self.bB = Tex(os.path.join(biome_dir, "T_LyrisBiomeB.png"), wrap=False)
         self.dA = Tex(os.path.join(TEXDIR, "T_LyrisDetailA.png"))
         self.dB = Tex(os.path.join(TEXDIR, "T_LyrisDetailB.png"))
         self.noise = Tex(os.path.join(TEXDIR, "T_LyrisWorldNoise.png"))
@@ -141,8 +143,8 @@ class Look:
         mid = (mid_a + mid_b) * 0.7071 + (0.5 - 0.7071)
 
         k = 2.0 * L.WARP_M * 100.0 / self.size
-        u = (X - self.lo) / self.size + (mid[..., 0] - 0.5) * k
-        v = (Y - self.lo) / self.size + (mid[..., 1] - 0.5) * k
+        u = (X - self.lo_x) / self.size + (mid[..., 0] - 0.5) * k
+        v = (Y - self.lo_y) / self.size + (mid[..., 1] - 0.5) * k
         fp = cm / (self.size / self.res)
         bA, bB = self.bA.sample(u, v, fp), self.bB.sample(u, v, fp)
         nA = mid - 0.5

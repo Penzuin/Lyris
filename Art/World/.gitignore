@@ -1,3 +1,5 @@
 # Baked terrain tiles are outputs: rebuild them with bake_terrain.py
 tiles/
 biome/
+# Moonharbor (T55) bake outputs: rebuild them with bake_moonharbor.py and foliage/scatter_moonharbor.py
+moonharbor/
