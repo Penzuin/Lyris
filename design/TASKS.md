@@ -56,6 +56,8 @@ harvesting, farming and interacting with the world (T10 to T16).
 
 | ID | Task | Lane | Depends on | Status | Branch | Notes |
 |---|---|---|---|---|---|---|
+| T53 | World chunks: divide the Lyris map into Genshin-style regions, areas and subareas, each with a release wave; 1.0 is Moonharbor only | Design | T34 | in progress | lane/design-T53-world-chunks | User asked 2026-10-22: "start small, with Moonharbor only", chunked like Genshin at release |
+| T54 | The 1.0 edge: keep players inside the Moonharbor chunks (land and sea) with soft, in-world boundaries, read from the T53 chunk mask | World | T53 | todo | | Waits for the user to OK the chunk borders |
 | T27 | Write the chosen geography (Inner Sea) and mystery (Forgetting Sea) into `Game_Concept.xlsx` and a short canon note in `design/lore/`, flagging anything new for the user's OK | Design | | todo | | Follows T9 |
 | T7 | Remove the unused template variants (Combat, Platforming, SideScrolling) | Lead | | needs compile | lane/lead-T7-remove-template | |
 
