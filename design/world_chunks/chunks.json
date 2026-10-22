@@ -1,0 +1,774 @@
+{
+ "scale": "1 px = 25 m; ids in chunks.png: land = index+1, sea = 100+index, 0 = none",
+ "waves": {
+  "1.0": "Moonharbor",
+  "1.1": "The North Road",
+  "1.2": "The River Country",
+  "1.3": "The West Mountains",
+  "1.4": "The White North",
+  "1.5": "The East Cape",
+  "2.0": "Saltreach and Greengrace",
+  "3.0": "Sunreach",
+  "4.0": "The Outer Isles"
+ },
+ "town_box": [
+  100,
+  620,
+  -2565,
+  -2120
+ ],
+ "chunks": [
+  {
+   "id": "M1",
+   "name": "Moonharbor (the town)",
+   "region": "Quiet Reach",
+   "wave": "1.0",
+   "wave_name": "Moonharbor",
+   "land_km2": 0.17,
+   "centre": [
+    430,
+    -2332
+   ],
+   "bbox": [
+    137,
+    612,
+    -2562,
+    -2137
+   ]
+  },
+  {
+   "id": "M2",
+   "name": "Keep Hill",
+   "region": "Quiet Reach",
+   "wave": "1.0",
+   "wave_name": "Moonharbor",
+   "land_km2": 0.64,
+   "centre": [
+    1127,
+    -2219
+   ],
+   "bbox": [
+    212,
+    1937,
+    -2987,
+    -1637
+   ]
+  },
+  {
+   "id": "M3",
+   "name": "Wayside Fields",
+   "region": "Quiet Reach",
+   "wave": "1.0",
+   "wave_name": "Moonharbor",
+   "land_km2": 1.73,
+   "centre": [
+    855,
+    -1529
+   ],
+   "bbox": [
+    -262,
+    2012,
+    -2162,
+    -937
+   ]
+  },
+  {
+   "id": "M4",
+   "name": "Mistwater Shore",
+   "region": "Quiet Reach",
+   "wave": "1.0",
+   "wave_name": "Moonharbor",
+   "land_km2": 0.87,
+   "centre": [
+    -545,
+    -2662
+   ],
+   "bbox": [
+    -1087,
+    337,
+    -4262,
+    -1712
+   ]
+  },
+  {
+   "id": "N1",
+   "name": "Observatory Rise",
+   "region": "Quiet Reach",
+   "wave": "1.1",
+   "wave_name": "The North Road",
+   "land_km2": 1.82,
+   "centre": [
+    1392,
+    -2890
+   ],
+   "bbox": [
+    262,
+    2437,
+    -3687,
+    -2037
+   ]
+  },
+  {
+   "id": "N2",
+   "name": "The Delvers' Uplands",
+   "region": "Quiet Reach",
+   "wave": "1.1",
+   "wave_name": "The North Road",
+   "land_km2": 3.36,
+   "centre": [
+    1971,
+    -4114
+   ],
+   "bbox": [
+    337,
+    3162,
+    -5162,
+    -3162
+   ]
+  },
+  {
+   "id": "R1",
+   "name": "Hollowmere and the Herring Road",
+   "region": "Quiet Reach",
+   "wave": "1.2",
+   "wave_name": "The River Country",
+   "land_km2": 1.34,
+   "centre": [
+    -404,
+    -1002
+   ],
+   "bbox": [
+    -1112,
+    312,
+    -1687,
+    -62
+   ]
+  },
+  {
+   "id": "R2",
+   "name": "The Strait Shore",
+   "region": "Quiet Reach",
+   "wave": "1.2",
+   "wave_name": "The River Country",
+   "land_km2": 4.08,
+   "centre": [
+    974,
+    -18
+   ],
+   "bbox": [
+    -362,
+    2062,
+    -1137,
+    1337
+   ]
+  },
+  {
+   "id": "R3",
+   "name": "The Heartland",
+   "region": "Quiet Reach",
+   "wave": "1.2",
+   "wave_name": "The River Country",
+   "land_km2": 1.91,
+   "centre": [
+    2468,
+    -1393
+   ],
+   "bbox": [
+    1912,
+    3362,
+    -2537,
+    262
+   ]
+  },
+  {
+   "id": "R4",
+   "name": "Glowmere",
+   "region": "Quiet Reach",
+   "wave": "1.2",
+   "wave_name": "The River Country",
+   "land_km2": 2.18,
+   "centre": [
+    3265,
+    -2566
+   ],
+   "bbox": [
+    2162,
+    4162,
+    -3512,
+    -1712
+   ]
+  },
+  {
+   "id": "R5",
+   "name": "The Steaming Fields",
+   "region": "Quiet Reach",
+   "wave": "1.2",
+   "wave_name": "The River Country",
+   "land_km2": 3.68,
+   "centre": [
+    3453,
+    -655
+   ],
+   "bbox": [
+    1912,
+    5087,
+    -1912,
+    537
+   ]
+  },
+  {
+   "id": "W1",
+   "name": "The Great Lake",
+   "region": "Quiet Reach",
+   "wave": "1.3",
+   "wave_name": "The West Mountains",
+   "land_km2": 5.18,
+   "centre": [
+    -1529,
+    -1991
+   ],
+   "bbox": [
+    -3037,
+    -37,
+    -4462,
+    412
+   ]
+  },
+  {
+   "id": "W2",
+   "name": "The Ladder Lakes",
+   "region": "Quiet Reach",
+   "wave": "1.3",
+   "wave_name": "The West Mountains",
+   "land_km2": 3.54,
+   "centre": [
+    -3211,
+    -3218
+   ],
+   "bbox": [
+    -4712,
+    -1512,
+    -4212,
+    -1912
+   ]
+  },
+  {
+   "id": "W3",
+   "name": "The Mistwall Coast",
+   "region": "Quiet Reach",
+   "wave": "1.3",
+   "wave_name": "The West Mountains",
+   "land_km2": 2.77,
+   "centre": [
+    -4267,
+    -2224
+   ],
+   "bbox": [
+    -5162,
+    -3137,
+    -3662,
+    -912
+   ]
+  },
+  {
+   "id": "W4",
+   "name": "The Grey Peaks",
+   "region": "Quiet Reach",
+   "wave": "1.3",
+   "wave_name": "The West Mountains",
+   "land_km2": 5.48,
+   "centre": [
+    -2579,
+    -188
+   ],
+   "bbox": [
+    -4187,
+    -487,
+    -1887,
+    1037
+   ]
+  },
+  {
+   "id": "F1",
+   "name": "The Sisterfjord",
+   "region": "Quiet Reach",
+   "wave": "1.4",
+   "wave_name": "The White North",
+   "land_km2": 3.29,
+   "centre": [
+    -1338,
+    -5496
+   ],
+   "bbox": [
+    -3887,
+    12,
+    -6362,
+    -4462
+   ]
+  },
+  {
+   "id": "F2",
+   "name": "The Glacier Ridge",
+   "region": "Quiet Reach",
+   "wave": "1.4",
+   "wave_name": "The White North",
+   "land_km2": 3.45,
+   "centre": [
+    1263,
+    -5056
+   ],
+   "bbox": [
+    -287,
+    3437,
+    -5937,
+    -4012
+   ]
+  },
+  {
+   "id": "F3",
+   "name": "Skyshoals",
+   "region": "Quiet Reach",
+   "wave": "1.4",
+   "wave_name": "The White North",
+   "land_km2": 4.34,
+   "centre": [
+    4364,
+    -4083
+   ],
+   "bbox": [
+    2862,
+    6637,
+    -5462,
+    -3062
+   ]
+  },
+  {
+   "id": "E1",
+   "name": "Elderheart",
+   "region": "Quiet Reach",
+   "wave": "1.5",
+   "wave_name": "The East Cape",
+   "land_km2": 5.56,
+   "centre": [
+    5613,
+    -2604
+   ],
+   "bbox": [
+    4137,
+    7687,
+    -3837,
+    -1137
+   ]
+  },
+  {
+   "id": "E2",
+   "name": "The High Table",
+   "region": "Quiet Reach",
+   "wave": "1.5",
+   "wave_name": "The East Cape",
+   "land_km2": 5.85,
+   "centre": [
+    6137,
+    -724
+   ],
+   "bbox": [
+    4237,
+    8012,
+    -2262,
+    937
+   ]
+  },
+  {
+   "id": "E3",
+   "name": "The Long Door Cape",
+   "region": "Quiet Reach",
+   "wave": "1.5",
+   "wave_name": "The East Cape",
+   "land_km2": 3.29,
+   "centre": [
+    7191,
+    251
+   ],
+   "bbox": [
+    5337,
+    8637,
+    -1087,
+    1512
+   ]
+  },
+  {
+   "id": "S1",
+   "name": "The Crater Lake",
+   "region": "Greengrace",
+   "wave": "2.0",
+   "wave_name": "Saltreach and Greengrace",
+   "land_km2": 2.96,
+   "centre": [
+    -827,
+    2671
+   ],
+   "bbox": [
+    -2087,
+    362,
+    387,
+    3987
+   ]
+  },
+  {
+   "id": "S2",
+   "name": "Greengrace Meadows",
+   "region": "Greengrace",
+   "wave": "2.0",
+   "wave_name": "Saltreach and Greengrace",
+   "land_km2": 2.79,
+   "centre": [
+    -2870,
+    2504
+   ],
+   "bbox": [
+    -4262,
+    -637,
+    487,
+    3462
+   ]
+  },
+  {
+   "id": "S3",
+   "name": "The Southern Greenwood",
+   "region": "Greengrace",
+   "wave": "2.0",
+   "wave_name": "Saltreach and Greengrace",
+   "land_km2": 3.19,
+   "centre": [
+    -2829,
+    4203
+   ],
+   "bbox": [
+    -4312,
+    -1662,
+    3362,
+    5337
+   ]
+  },
+  {
+   "id": "S4",
+   "name": "The Glass Dunes",
+   "region": "Saltreach",
+   "wave": "2.0",
+   "wave_name": "Saltreach and Greengrace",
+   "land_km2": 4.09,
+   "centre": [
+    -5189,
+    1621
+   ],
+   "bbox": [
+    -6587,
+    -3762,
+    162,
+    3137
+   ]
+  },
+  {
+   "id": "S5",
+   "name": "The Skyfall Spine",
+   "region": "Saltreach",
+   "wave": "2.0",
+   "wave_name": "Saltreach and Greengrace",
+   "land_km2": 5.66,
+   "centre": [
+    -5764,
+    3379
+   ],
+   "bbox": [
+    -7287,
+    -4212,
+    1562,
+    5287
+   ]
+  },
+  {
+   "id": "S6",
+   "name": "The Badlands",
+   "region": "Saltreach",
+   "wave": "2.0",
+   "wave_name": "Saltreach and Greengrace",
+   "land_km2": 3.99,
+   "centre": [
+    -4357,
+    5116
+   ],
+   "bbox": [
+    -5912,
+    -2837,
+    3737,
+    6187
+   ]
+  },
+  {
+   "id": "S7",
+   "name": "The Hexstone Cape",
+   "region": "Saltreach",
+   "wave": "2.0",
+   "wave_name": "Saltreach and Greengrace",
+   "land_km2": 2.89,
+   "centre": [
+    -7276,
+    1869
+   ],
+   "bbox": [
+    -8487,
+    -6187,
+    -12,
+    3337
+   ]
+  },
+  {
+   "id": "U1",
+   "name": "The Sunreach Plains",
+   "region": "Sunreach",
+   "wave": "3.0",
+   "wave_name": "Sunreach",
+   "land_km2": 5.4,
+   "centre": [
+    2727,
+    2521
+   ],
+   "bbox": [
+    1062,
+    4137,
+    237,
+    4662
+   ]
+  },
+  {
+   "id": "U2",
+   "name": "The Thunder Curtain",
+   "region": "Sunreach",
+   "wave": "3.0",
+   "wave_name": "Sunreach",
+   "land_km2": 2.84,
+   "centre": [
+    1514,
+    4163
+   ],
+   "bbox": [
+    162,
+    2812,
+    2312,
+    5987
+   ]
+  },
+  {
+   "id": "U3",
+   "name": "The Sunstair Volcano",
+   "region": "Sunreach",
+   "wave": "3.0",
+   "wave_name": "Sunreach",
+   "land_km2": 5.82,
+   "centre": [
+    3897,
+    4917
+   ],
+   "bbox": [
+    2312,
+    5362,
+    3237,
+    6187
+   ]
+  },
+  {
+   "id": "U4",
+   "name": "The Jungle Coast",
+   "region": "Sunreach",
+   "wave": "3.0",
+   "wave_name": "Sunreach",
+   "land_km2": 4.04,
+   "centre": [
+    4650,
+    2435
+   ],
+   "bbox": [
+    3512,
+    6137,
+    937,
+    3862
+   ]
+  },
+  {
+   "id": "O1",
+   "name": "Westwatch",
+   "region": "Outer Isles",
+   "wave": "4.0",
+   "wave_name": "The Outer Isles",
+   "land_km2": 2.51,
+   "centre": [
+    -9262,
+    -1813
+   ],
+   "bbox": [
+    -9987,
+    -8212,
+    -3687,
+    2312
+   ]
+  },
+  {
+   "id": "O2",
+   "name": "The Birchholms",
+   "region": "Outer Isles",
+   "wave": "4.0",
+   "wave_name": "The Outer Isles",
+   "land_km2": 1.75,
+   "centre": [
+    -6344,
+    -982
+   ],
+   "bbox": [
+    -7237,
+    -4987,
+    -2212,
+    287
+   ]
+  },
+  {
+   "id": "O3",
+   "name": "Snowcap",
+   "region": "Outer Isles",
+   "wave": "4.0",
+   "wave_name": "The Outer Isles",
+   "land_km2": 0.98,
+   "centre": [
+    -4618,
+    -5421
+   ],
+   "bbox": [
+    -5312,
+    -3787,
+    -6287,
+    -4787
+   ]
+  },
+  {
+   "id": "O4",
+   "name": "The Flowerholms",
+   "region": "Outer Isles",
+   "wave": "4.0",
+   "wave_name": "The Outer Isles",
+   "land_km2": 1.55,
+   "centre": [
+    10431,
+    -4112
+   ],
+   "bbox": [
+    9337,
+    11387,
+    -5862,
+    -2462
+   ]
+  },
+  {
+   "id": "O6",
+   "name": "Blossom Isle",
+   "region": "Outer Isles",
+   "wave": "4.0",
+   "wave_name": "The Outer Isles",
+   "land_km2": 1.84,
+   "centre": [
+    9478,
+    3607
+   ],
+   "bbox": [
+    8787,
+    10837,
+    2487,
+    4537
+   ]
+  },
+  {
+   "id": "O7",
+   "name": "The Bamboo Isles",
+   "region": "Outer Isles",
+   "wave": "4.0",
+   "wave_name": "The Outer Isles",
+   "land_km2": 0.75,
+   "centre": [
+    8182,
+    5709
+   ],
+   "bbox": [
+    7437,
+    9512,
+    5112,
+    6337
+   ]
+  },
+  {
+   "id": "O8",
+   "name": "Glowcap Hollow",
+   "region": "Outer Isles",
+   "wave": "4.0",
+   "wave_name": "The Outer Isles",
+   "land_km2": 0.59,
+   "centre": [
+    -10694,
+    5866
+   ],
+   "bbox": [
+    -11212,
+    -10162,
+    5262,
+    6537
+   ]
+  },
+  {
+   "id": "H1",
+   "name": "Starfall Bay",
+   "region": "Quiet Reach (sea)",
+   "wave": "1.0",
+   "wave_name": "Moonharbor",
+   "water_km2": 1.01,
+   "circles": [
+    [
+     -180,
+     -2640,
+     640
+    ],
+    [
+     60,
+     -2900,
+     420
+    ]
+   ]
+  },
+  {
+   "id": "H2",
+   "name": "The Lampwick Gulf",
+   "region": "Quiet Reach (sea)",
+   "wave": "1.0",
+   "wave_name": "Moonharbor",
+   "water_km2": 4.29,
+   "circles": [
+    [
+     150,
+     -3450,
+     700
+    ],
+    [
+     -500,
+     -3950,
+     900
+    ],
+    [
+     -1500,
+     -4250,
+     1000
+    ],
+    [
+     -2500,
+     -4450,
+     950
+    ]
+   ]
+  }
+ ]
+}
