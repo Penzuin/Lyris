@@ -21,7 +21,9 @@ lets the T51 foliage go in without streaming):
     and the 2 m Lampwick Gulf with the Skerries, 128 components), with the T50 look in its Moonharbor copy
     (M_LyrisMoonharborTerrain_v1, its own 1.5 m biome maps);
   * a low-detail backdrop mesh of the whole world round them (vertex-painted, Nanite, walkable);
-  * sky and golden-hour light, the T19 sea (MPC_Sea Gerstner clipmap, Moonharbor's ground map for the
+  * the majesty pass (T59, lyris_atmosphere.py): golden-hour sun, a pale moon over the bay mouth, sea mist
+    with volumetric light, sunlit clouds, the storybook grade, and drifting motes of light round every kept
+    lamp and wonder; the T19 sea (MPC_Sea Gerstner clipmap, Moonharbor's ground map for the
     shallows, the home calm zone over Starfall Bay), lakes and upland rivers (Water plugin);
   * the 1.0 landmark blockouts (town, harbour, Lantern Pier, the lighthouse, Syrena's statue, Keep
     Elariel, Oruth, the Teeth, waystone ring A, the Lampwick lamps) and a blockout of the Mistwater Bridge;
@@ -45,7 +47,7 @@ import unreal
 
 import lyris_build_world as w
 
-BUILD_VERSION = 1
+BUILD_VERSION = 2  # 2: the majesty pass (T59): sky v2 from lyris_atmosphere.py, and the motes step
 MAP_PATH = "/Game/Lyris/Maps/Moonharbor"
 MH_DIR = "Art/World/moonharbor"
 MANIFEST = "moonharbor_manifest.json"
@@ -60,12 +62,15 @@ SCATTER_DIR = f"{MH_DIR}/scatter"
 LANDMARKS_VISIBLE = True
 
 STEP_VERSIONS = {
-    "sky": 1, "sea": 1, "water_zone": 1, "lakes": 1, "rivers": 1, "bounds": 1, "backdrop": 1,
-    "terrain_look": 1, "landmarks": 1, "bridges": 1, "player_start": 1, "boat_dock": 1, "foliage": 1,
+    "sky": 2,    # 2: lyris_atmosphere.build_sky (T59) replaces lyris_build_world's plain sky on this map
+    "sea": 1, "water_zone": 1, "lakes": 1, "rivers": 1, "bounds": 1, "backdrop": 1,
+    "terrain_look": 1, "landmarks": 1, "bridges": 1, "player_start": 1, "boat_dock": 1,
+    "motes": 1,  # T59: light motes at the landmark lights; redo after the landmarks step is rebuilt
+    "foliage": 1,
 }
 STEP_ORDER = ["sky", "sea", "water_zone", "lakes", "rivers", "bounds", "backdrop", "terrain_look", "landmarks",
-              "bridges", "player_start", "boat_dock", "foliage"]
-WORLD_STEPS = ("sky", "sea", "lakes", "rivers", "player_start", "boat_dock")   # lyris_build_world's own code
+              "bridges", "player_start", "boat_dock", "motes", "foliage"]
+WORLD_STEPS = ("sea", "lakes", "rivers", "player_start", "boat_dock")   # lyris_build_world's own code
 MARKER_PREFIX = "LyrisMoonharbor_v"
 MARKER_TAG = "LyrisMoonharborMarker"
 STEP_VER_TAG = "LyrisMHStepVer_"
@@ -296,6 +301,24 @@ def _step_actors(step):
     return out
 
 
+def _atmosphere():
+    import importlib
+    import lyris_atmosphere as atm
+    importlib.reload(atm)
+    return atm
+
+
+def _step_sky(b, m):
+    # v1 of this step was lyris_build_world's sky, tagged with the world's own step tag: clear that too.
+    old = [a for a in _eas().get_all_level_actors() if f"{w.STEP_TAG_PREFIX}sky" in w._tags(a)]
+    w.destroy_in_batches(_eas(), old, "the plain sky")
+    _atmosphere().build_sky(b)
+
+
+def _step_motes(b, m):
+    _atmosphere().build_motes(b, LABEL_PREFIX, trace=_trace_z)
+
+
 def _step_water_zone(b, m):
     if not hasattr(unreal, "WaterZone"):
         raise RuntimeError("Water plugin classes not found; enable the Water plugin")
@@ -489,7 +512,7 @@ def _step_foliage(b, m):
         f.build()
 
 
-OWN_STEPS = {"water_zone": _step_water_zone, "bounds": _step_bounds, "backdrop": _step_backdrop,
+OWN_STEPS = {"sky": _step_sky, "motes": _step_motes, "water_zone": _step_water_zone, "bounds": _step_bounds, "backdrop": _step_backdrop,
              "terrain_look": _step_terrain_look, "landmarks": _step_landmarks, "bridges": _step_bridges,
              "foliage": _step_foliage}
 
@@ -586,7 +609,8 @@ def build(force=False, only=None, check_mode=True):
         steps = outdated(recorded)
     if len(_match_landscapes(m)) < 2:
         # Without the landscapes, traced blockouts and foliage would float: build only what does not stand on them.
-        later = [s for s in steps if s in ("landmarks", "bridges", "player_start", "boat_dock", "foliage", "terrain_look")]
+        later = [s for s in steps if s in ("landmarks", "bridges", "player_start", "boat_dock", "motes", "foliage",
+                                           "terrain_look")]
         steps = [s for s in steps if s not in later]
         if later:
             _log(f"waiting for the landscapes before: {', '.join(later)}")

@@ -410,3 +410,27 @@ Hardware ray tracing (`r.RayTracing=True` in `Config/DefaultEngine.ini`) also co
 its acceleration structures, more once the 16384² landscape is in. Turning it off is a project-wide
 look decision for the Lead, not an editor setting.
 
+## The majesty pass (T59): sky, light, mist and motes
+
+`Content/Python/lyris_atmosphere.py` gives Moonharbor its storybook sky. It is two build steps of
+`lyris_build_moonharbor.py`:
+
+- **sky** (v2): a golden-hour sun with soft shadows, light shafts and cloud shadows; a pale oversized moon
+  over the bay mouth (a picture only, it lights nothing); a hazier sky with stronger aerial perspective;
+  sea mist in two layers with volumetric fog, so lamps wear halos; lower clouds lit from beneath; and the
+  storybook grade (warm lights, cool shadows, soft bloom).
+- **motes** (v1): drifting, twinkling motes of light round every landmark lamp, and tall columns of them at
+  the great lamp, the Hung Star, the water over Oruth and waystone ring A. One small static mesh per cloud,
+  animated by its material: no Niagara, no hand-made assets.
+
+```
+import lyris_build_moonharbor as mh; mh.build()                  # builds both (sky v1 -> v2, motes new)
+import lyris_build_moonharbor as mh; mh.build(only=["sky"])      # after changing a number in SKY or GRADE
+import lyris_build_moonharbor as mh; mh.build(only=["motes"])    # after changing MOTES, or rebuilding landmarks
+```
+
+Every number worth tuning by eye is in the `SKY`, `GRADE` and `MOTES` tables at the top of the script. To
+change the mote mesh or material, bump `VERSION` there (assets are versioned, never edited in place). The
+sky actors carry tags (`LyrisSun`, `LyrisMoon`, `LyrisSkyAtmosphere`, `LyrisSkyLight`, `LyrisSeaMist`,
+`LyrisClouds`, `LyrisGrade`) so the day/night clock (T1) can find and drive them; motes carry `LyrisMotes`.
+The full world map (`lyris_build_world.py`) still has the plain sky.
